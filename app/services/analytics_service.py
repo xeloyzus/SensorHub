@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from statistics import mean, median
 from typing import Iterable
 
 from psycopg import AsyncConnection
+
+from ..core.sensors import AIR_SENSOR_TYPES
 
 from ..schemas import Building
 from ..schemas.analytics import (
@@ -29,24 +31,29 @@ CO2_RAPID_CHANGE_PPM = 150
 SUSTAINED_MINUTES = 45
 MINIMUM_SAMPLES = 4
 EXPECTED_24H_SAMPLES_PER_SERIES = 96
-METHODOLOGY_ID = "co2-v1"
+MAX_SAMPLE_GAP_MINUTES = 20
+HISTORY_BUCKET_MINUTES = 15
+METHODOLOGY_ID = "co2-v2"
 
 METHODOLOGY = Methodology(
     id=METHODOLOGY_ID,
-    title="Initial transparent CO2 recommendation rules",
+    title="CO2 rules with sensor freshness and sustained evidence",
     freshness_minutes={"current": CURRENT_MINUTES, "delayed": DELAYED_MINUTES},
     co2_reference_ppm=CO2_REFERENCE_PPM,
     co2_bands=[
-        {"label": "typical", "from": 0, "to": 800, "color": "#2a9d8f"},
-        {"label": "watch", "from": 800, "to": CO2_REFERENCE_PPM, "color": "#e9c46a"},
-        {"label": "elevated", "from": CO2_REFERENCE_PPM, "to": None, "color": "#e76f51"},
+        {"label": "typical", "from": 0, "to": 800, "color": "#24734d"},
+        {"label": "watch", "from": 800, "to": CO2_REFERENCE_PPM, "color": "#8a5700"},
+        {"label": "elevated", "from": CO2_REFERENCE_PPM, "to": None, "color": "#b13e35"},
     ],
     sustained_minutes=SUSTAINED_MINUTES,
     minimum_samples=MINIMUM_SAMPLES,
     notes=[
-        "CO2 thresholds are configuration values for the first implementation slice.",
+        "CO2 reference bands help interpret readings; they are not a diagnosis of indoor air quality.",
         "Recommendations are deterministic suggestions, not automated diagnoses.",
         "Correlation between metrics is not treated as evidence of causation.",
+        "Current aggregates exclude readings over 45 minutes old and future timestamps.",
+        "CO2 actions require at least four consecutive elevated 15-minute averages from one current sensor spanning 45 minutes, with no gap over 20 minutes.",
+        "Coverage is populated 15-minute buckets divided by 96 per registered air sensor.",
     ],
 )
 
@@ -89,9 +96,11 @@ async def get_building_summary(
         return None
 
     generated_at = _now()
-    freshness = classify_freshness(current.updated, generated_at)
-    active_sensors = len(current.sensors)
-    stale_sensors = active_sensors if freshness.status == "stale" else 0
+    sensor_freshness = [_sensor_freshness(sensor, generated_at) for sensor in current.sensors]
+    freshness = _worst_freshness(sensor_freshness)
+    active_sensors = sum(item.status in {"current", "delayed"} for item in sensor_freshness)
+    stale_sensors = sum(item.status == "stale" for item in sensor_freshness)
+    air_sensors = [sensor for sensor in current.sensors if sensor.type in AIR_SENSOR_TYPES]
 
     co2 = _metric_stats(
         label="CO2",
@@ -99,10 +108,12 @@ async def get_building_summary(
         metric="co2",
         current_values=[
             sensor.readings["co2"]
-            for sensor in current.sensors
-            if "co2" in sensor.readings
+            for sensor in air_sensors
+            if _metric_is_fresh(sensor, "co2", generated_at)
         ],
         history_series=history.series,
+        sensors=air_sensors,
+        now=generated_at,
     )
     temperature = _metric_stats(
         label="Temperature",
@@ -110,16 +121,20 @@ async def get_building_summary(
         metric="temperature",
         current_values=[
             sensor.readings["temperature"]
-            for sensor in current.sensors
-            if "temperature" in sensor.readings
+            for sensor in air_sensors
+            if _metric_is_fresh(sensor, "temperature", generated_at)
         ],
         history_series=history.series,
+        sensors=air_sensors,
+        now=generated_at,
     )
-    energy = _energy_summary(current.sensors)
+    energy = _energy_summary(current.sensors, generated_at)
 
     quality = DataQuality(
         active_sensors=active_sensors,
         stale_sensors=stale_sensors,
+        registered_sensors=len(current.sensors),
+        missing_sensors=sum(item.status == "unknown" for item in sensor_freshness),
         coverage_24h=max(co2.coverage_24h, temperature.coverage_24h),
         freshness=freshness,
     )
@@ -163,13 +178,16 @@ def classify_freshness(latest: datetime | None, now: datetime | None = None) -> 
             description="No reading timestamp is available.",
         )
 
-    now = now or _now()
+    now = _aware_utc(now or _now())
     latest = _aware_utc(latest)
-    age = max(0, round((now - latest).total_seconds() / 60))
-    if age < CURRENT_MINUTES:
+    if latest > now:
+        return Freshness(status="unknown", latest_reading=latest, description="Reading timestamp is in the future.")
+    elapsed_minutes = (now - latest).total_seconds() / 60
+    age = round(elapsed_minutes)
+    if elapsed_minutes < CURRENT_MINUTES:
         status = "current"
         description = f"Latest reading is {age} min old."
-    elif age <= DELAYED_MINUTES:
+    elif elapsed_minutes <= DELAYED_MINUTES:
         status = "delayed"
         description = f"Latest reading is delayed at {age} min old."
     else:
@@ -191,13 +209,27 @@ def _metric_stats(
     metric: str,
     current_values: Iterable[float],
     history_series,
+    sensors,
+    now: datetime,
 ) -> MetricStatistics:
-    matching_series = [series for series in history_series if series.metric == metric]
-    points = [float(point.value) for series in matching_series for point in series.points]
+    sensor_ids = {sensor.device_id for sensor in sensors}
+    matching_series = [
+        series for series in history_series
+        if series.metric == metric
+        and series.type in AIR_SENSOR_TYPES
+        and series.device_id in sensor_ids
+    ]
+    points = [
+        float(point.value)
+        for series in matching_series
+        for point in _ordered_points(series, now)
+    ]
+    current_values = list(current_values)
     current = _rounded_mean(current_values)
-    source_count = len(matching_series)
-    expected = source_count * EXPECTED_24H_SAMPLES_PER_SERIES
-    coverage = round(len(points) / expected, 2) if expected else 0.0
+    source_count = len(current_values)
+    registered_count = len(sensors)
+    expected = registered_count * EXPECTED_24H_SAMPLES_PER_SERIES
+    coverage = min(1.0, round(len(points) / expected, 2)) if expected else 0.0
 
     if not points:
         return MetricStatistics(
@@ -206,10 +238,18 @@ def _metric_stats(
             current=current,
             sample_count=0,
             source_count=source_count,
+            registered_source_count=registered_count,
             coverage_24h=coverage,
         )
 
-    change_1h = _change_over_last_hour(matching_series, current)
+    fresh_ids = {
+        sensor.device_id for sensor in sensors
+        if _metric_is_fresh(sensor, metric, now)
+    }
+    fresh_series = [series for series in matching_series if series.device_id in fresh_ids]
+    changes = _hour_changes(fresh_series, now)
+    change_1h = mean(changes) if changes else None
+    sustained = _sustained_evidence(fresh_series, sensors, now) if metric == "co2" else {}
     precision = 1 if metric == "temperature" else 0
 
     return MetricStatistics(
@@ -224,22 +264,31 @@ def _metric_stats(
         change_1h=_round_optional(change_1h, precision),
         sample_count=len(points),
         source_count=source_count,
+        registered_source_count=registered_count,
+        trend_source_count=len(changes),
+        sustained_minutes=max(sustained.values(), default=0),
+        sustained_device_ids=sorted(sustained),
         coverage_24h=coverage,
     )
 
 
-def _energy_summary(sensors) -> EnergySummary:
+def _energy_summary(sensors, now: datetime | None = None) -> EnergySummary:
+    now = now or _now()
     total_amps = 0.0
+    has_readings = False
     for sensor in sensors:
+        if sensor.type != "ct305":
+            continue
         phase_values = [
             float(sensor.readings[metric])
             for metric in ("current_1", "current_2", "current_3")
-            if metric in sensor.readings
+            if _metric_is_fresh(sensor, metric, now)
         ]
         if phase_values:
             total_amps += sum(phase_values)
+            has_readings = True
 
-    current_kw = round(total_amps * 230 / 1000, 1) if total_amps else None
+    current_kw = round(total_amps * 230 / 1000, 1) if has_readings else None
     return EnergySummary(
         current_kw=current_kw,
         method=(
@@ -258,7 +307,7 @@ def _building_insights(
 ) -> list[Insight]:
     insights: list[Insight] = []
 
-    if quality.freshness.status in {"delayed", "stale"}:
+    if quality.freshness.status in {"delayed", "stale", "unknown"}:
         insights.append(
             Insight(
                 id="sensor_stale",
@@ -313,7 +362,7 @@ def _building_insights(
             Insight(
                 id="temperature_context",
                 title=f"{building.name} temperature is {temperature.current:.1f} °C",
-                body="No notable CO2 or electricity pattern was detected from the current data slice.",
+                body="No notable CO2 or electricity pattern was detected in the recent readings.",
                 severity="info",
                 metric="temperature",
                 evidence={"current": temperature.current},
@@ -330,7 +379,9 @@ def _building_recommendations(
         co2.current is None
         or co2.current < CO2_REFERENCE_PPM
         or co2.sample_count < MINIMUM_SAMPLES
-        or quality.freshness.status == "stale"
+        or quality.freshness.status != "current"
+        or co2.sustained_minutes < SUSTAINED_MINUTES
+        or not co2.sustained_device_ids
     ):
         return []
 
@@ -350,6 +401,8 @@ def _building_recommendations(
                 "change_1h": co2.change_1h,
                 "samples": co2.sample_count,
                 "coverage_24h": co2.coverage_24h,
+                "sustained_minutes": co2.sustained_minutes,
+                "device_ids": co2.sustained_device_ids,
             },
             interpretation=(
                 "The pattern is consistent with ventilation not keeping pace with "
@@ -398,7 +451,7 @@ def _campus_insights(summaries: list[BuildingSummary]) -> list[Insight]:
         insights.append(
             Insight(
                 id="campus_stale_sensors",
-                title=f"{stale_count} sensors are represented by stale building data",
+                title=f"{stale_count} sensors have stale measurements",
                 body="Stale readings are excluded from claims about current conditions.",
                 severity="warning",
                 evidence={"stale_sensors": stale_count},
@@ -412,18 +465,20 @@ def _combine_metric(
     label: str, unit: str, metrics: Iterable[MetricStatistics]
 ) -> MetricStatistics:
     metric_list = list(metrics)
-    current_values = [metric.current for metric in metric_list if metric.current is not None]
-    coverage_values = [metric.coverage_24h for metric in metric_list if metric.source_count]
     sample_count = sum(metric.sample_count for metric in metric_list)
     source_count = sum(metric.source_count for metric in metric_list)
-    all_means = [metric.mean_24h for metric in metric_list if metric.mean_24h is not None]
+    registered_count = sum(metric.registered_source_count for metric in metric_list)
 
     precision = 1 if unit == "°C" else 0
     return MetricStatistics(
         label=label,
         unit=unit,
-        current=_round_optional(_rounded_mean(current_values), precision),
-        mean_24h=_round_optional(_rounded_mean(all_means), precision),
+        current=_round_optional(
+            _weighted_metric(metric_list, "current", "source_count"), precision
+        ),
+        mean_24h=_round_optional(
+            _weighted_metric(metric_list, "mean_24h", "sample_count"), precision
+        ),
         median_24h=None,
         min_24h=min(
             [metric.min_24h for metric in metric_list if metric.min_24h is not None],
@@ -435,14 +490,16 @@ def _combine_metric(
         ),
         p95_24h=None,
         change_1h=_round_optional(
-            _rounded_mean(
-                [metric.change_1h for metric in metric_list if metric.change_1h is not None]
-            ),
-            precision,
+            _weighted_metric(metric_list, "change_1h", "trend_source_count"), precision
         ),
         sample_count=sample_count,
         source_count=source_count,
-        coverage_24h=round(mean(coverage_values), 2) if coverage_values else 0.0,
+        registered_source_count=registered_count,
+        trend_source_count=sum(metric.trend_source_count for metric in metric_list),
+        coverage_24h=round(
+            _weighted_metric(metric_list, "coverage_24h", "registered_source_count") or 0.0,
+            2,
+        ),
     )
 
 
@@ -455,38 +512,145 @@ def _combine_energy(energies: Iterable[EnergySummary]) -> EnergySummary:
 
 
 def _combine_quality(qualities: list[DataQuality], generated_at: datetime) -> DataQuality:
-    latest = max(
-        [
-            quality.freshness.latest_reading
-            for quality in qualities
-            if quality.freshness.latest_reading is not None
-        ],
-        default=None,
-    )
-    coverage_values = [quality.coverage_24h for quality in qualities]
+    registered = sum(quality.registered_sensors for quality in qualities)
+    covered = sum(quality.coverage_24h * quality.registered_sensors for quality in qualities)
     return DataQuality(
         active_sensors=sum(quality.active_sensors for quality in qualities),
         stale_sensors=sum(quality.stale_sensors for quality in qualities),
-        coverage_24h=round(mean(coverage_values), 2) if coverage_values else 0.0,
-        freshness=classify_freshness(latest, generated_at),
+        registered_sensors=registered,
+        missing_sensors=sum(quality.missing_sensors for quality in qualities),
+        coverage_24h=round(covered / registered, 2) if registered else 0.0,
+        freshness=_worst_freshness([quality.freshness for quality in qualities]),
     )
 
 
-def _change_over_last_hour(series_list, current: float | None) -> float | None:
+def _change_over_last_hour(
+    series_list, current: float | None, now: datetime | None = None
+) -> float | None:
     if current is None:
         return None
 
-    changes = []
-    for series in series_list:
-        if len(series.points) < 5:
-            continue
-        recent = float(series.points[-1].value)
-        previous = float(series.points[-5].value)
-        changes.append(recent - previous)
+    changes = _hour_changes(series_list, now or _now())
 
     if not changes:
         return None
     return mean(changes)
+
+
+def _metric_is_fresh(sensor, metric: str, now: datetime) -> bool:
+    timestamp = sensor.metric_updated.get(metric)
+    if metric not in sensor.readings or timestamp is None:
+        return False
+    age = (_aware_utc(now) - _aware_utc(timestamp)).total_seconds() / 60
+    return 0 <= age <= DELAYED_MINUTES
+
+
+def _sensor_freshness(sensor, now: datetime) -> Freshness:
+    expected = (
+        ("co2", "temperature", "humidity") if sensor.type in AIR_SENSOR_TYPES
+        else ("current_1", "current_2", "current_3")
+    )
+    timestamps = [sensor.metric_updated.get(metric) for metric in expected]
+    if any(timestamp is None for timestamp in timestamps):
+        return classify_freshness(None, now)
+    # A fresh battery or panel-temperature report cannot mask old telemetry.
+    future = next(
+        (timestamp for timestamp in timestamps if _aware_utc(timestamp) > now), None
+    )
+    return classify_freshness(future or min(timestamps), now)
+
+
+def _worst_freshness(items: list[Freshness]) -> Freshness:
+    if not items:
+        return classify_freshness(None)
+    rank = {"current": 0, "delayed": 1, "unknown": 2, "stale": 3}
+    worst = max(items, key=lambda item: (rank[item.status], item.age_minutes or 0))
+    description = worst.description
+    if not description.startswith("Least fresh sensor:"):
+        description = "Least fresh sensor: " + description
+    return worst.model_copy(update={"description": description})
+
+
+def _weighted_metric(metrics, field: str, weight_field: str) -> float | None:
+    pairs = [
+        (getattr(item, field), getattr(item, weight_field)) for item in metrics
+        if getattr(item, field) is not None and getattr(item, weight_field) > 0
+    ]
+    if not pairs:
+        return None
+    return sum(value * weight for value, weight in pairs) / sum(weight for _, weight in pairs)
+
+
+def _ordered_points(series, now: datetime):
+    # Deduplicate timestamps and ignore points outside the selected window.
+    cutoff = now - timedelta(hours=24, minutes=HISTORY_BUCKET_MINUTES)
+    points = {
+        _aware_utc(point.time): point for point in series.points
+        if cutoff < _aware_utc(point.time) <= now
+    }
+    return [points[timestamp] for timestamp in sorted(points)]
+
+
+def _history_is_recent(points, now: datetime) -> bool:
+    maximum_age = (CURRENT_MINUTES + HISTORY_BUCKET_MINUTES) * 60
+    return bool(points) and (now - _aware_utc(points[-1].time)).total_seconds() <= maximum_age
+
+
+def _has_history_gap(points) -> bool:
+    return any(
+        (_aware_utc(right.time) - _aware_utc(left.time)).total_seconds()
+        > MAX_SAMPLE_GAP_MINUTES * 60
+        for left, right in zip(points, points[1:])
+    )
+
+
+def _hour_changes(series_list, now: datetime) -> list[float]:
+    changes = []
+    for series in series_list:
+        points = _ordered_points(series, now)
+        if len(points) < 2 or not _history_is_recent(points, now):
+            continue
+        target = _aware_utc(points[-1].time) - timedelta(hours=1)
+        index = min(
+            range(len(points)),
+            key=lambda i: abs((_aware_utc(points[i].time) - target).total_seconds()),
+        )
+        if abs((_aware_utc(points[index].time) - target).total_seconds()) > 5 * 60:
+            continue
+        window = points[index:]
+        if _has_history_gap(window):
+            continue
+        changes.append(float(points[-1].value) - float(points[index].value))
+    return changes
+
+
+def _sustained_evidence(series_list, sensors, now: datetime) -> dict[int, float]:
+    eligible = {
+        sensor.device_id for sensor in sensors
+        if _metric_is_fresh(sensor, "co2", now)
+        and classify_freshness(sensor.metric_updated["co2"], now).status == "current"
+        and sensor.readings["co2"] >= CO2_REFERENCE_PPM
+    }
+    evidence = {}
+    for series in series_list:
+        if series.device_id not in eligible:
+            continue
+        points = _ordered_points(series, now)
+        if not _history_is_recent(points, now):
+            continue
+        elevated = []
+        for point in reversed(points):
+            if point.value < CO2_REFERENCE_PPM:
+                break
+            if elevated and _has_history_gap([point, elevated[-1]]):
+                break
+            elevated.append(point)
+        if len(elevated) < MINIMUM_SAMPLES:
+            continue
+        duration = (_aware_utc(elevated[0].time) - _aware_utc(elevated[-1].time)).total_seconds() / 60
+        if duration >= SUSTAINED_MINUTES:
+            evidence[series.device_id] = round(duration, 1)
+    return evidence
 
 
 def _percentile(values: list[float], percentile: int) -> float:

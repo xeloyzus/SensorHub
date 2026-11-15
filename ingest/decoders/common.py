@@ -14,18 +14,38 @@ from collections.abc import Iterator
 # A spec entry is (data_length, metric_name, divisor, signed).
 Spec = dict[tuple[int, int], tuple[int, str, int, bool]]
 
+# Fixed-length metadata supported by the official AM103/CT305 decoders.
+# Skip only known lengths; guessing the size of an unknown record is unsafe.
+METADATA_LENGTHS = {
+    (0xFF, 0x01): 1,  # protocol version
+    (0xFF, 0x09): 2,  # hardware version
+    (0xFF, 0x0A): 2,  # firmware version
+    (0xFF, 0xFF): 2,  # TSL version
+    (0xFF, 0x16): 8,  # serial number
+    (0xFF, 0x0F): 1,  # LoRaWAN class
+    (0xFF, 0xFE): 1,  # reset event
+    (0xFF, 0x0B): 1,  # device status
+}
 
-def iter_fields(payload: bytes, spec: Spec) -> Iterator[tuple[int, int, bytes]]:
+
+def iter_fields(
+    payload: bytes, spec: Spec, metadata_lengths: dict[tuple[int, int], int] | None = None
+) -> Iterator[tuple[int, int, bytes]]:
     """Yield ``(channel, type, data)`` for each record in ``payload``.
 
     Iteration stops at the first unknown record or a truncated payload, because
     in both cases the remaining record lengths can no longer be determined.
     """
+    metadata_lengths = METADATA_LENGTHS if metadata_lengths is None else metadata_lengths
     i, n = 0, len(payload)
     while i + 1 < n:
         key = (payload[i], payload[i + 1])
         entry = spec.get(key)
         if entry is None:
+            length = metadata_lengths.get(key)
+            if length is not None and i + 2 + length <= n:
+                i += 2 + length
+                continue
             return
         start, end = i + 2, i + 2 + entry[0]
         if end > n:

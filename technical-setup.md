@@ -1,162 +1,166 @@
-# NanitesLab — Technical Setup
+# Campus dashboard — Technical Setup
 
-Full technical documentation for the sensor network, backend, dashboard, and display setup.
-UiS Green Funds project, 14 Sep – 31 Dec 2026.
+Technical documentation for the UiS Green Funds sensor network, backend,
+dashboard, and signage deployment (14 Sep – 31 Dec 2026).
 
----
+## 1. Deployment decisions
 
-## 1. System Overview
+The application and database run on a **dedicated Linux PC**. Three signage
+screens in KEH, EOJ, and ARK load the exposed dashboard URL through Samsung's
+built-in internet/URL feature.
+The Mac Studio is reserved for other work and is outside Campus dashboard.
 
+The imported [`hardware/hardware.csv`](hardware/hardware.csv) also lists a
+GMKtec G10 for ChirpStack/MQTT. Whether it is the dedicated Linux PC or a
+separate edge node still needs confirming. Keep that distinction explicit:
+the repository currently deploys one application/broker host and does not
+include a ChirpStack service or an edge-to-central replay mechanism.
+
+## 2. Implemented data path
+
+```text
+AM103 / AM107 / CT305 sensors
+        | LoRaWAN
+        v
+UG65 gateways (embedded network server)
+        | MQTT over encrypted VPN/tunnel
+        v
+Dedicated Linux PC — Docker Compose
+   Mosquitto -> ingest -> TimescaleDB -> FastAPI
+                                        |
+                                      Caddy
+                                        | HTTPS
+               +------------------------+----------------------+
+               v                        v                      v
+      Signage browsers (3)       Interactive dashboard     Mobile view
+              /                       /overview              /mobile
 ```
-[AM103 / CT305 sensors]  (10 + 2 spare AM103, 3× CT305)
-        │  LoRaWAN
-        ▼
-[UG65 gateway, 1 per building]  (Kjølv Egelands hus / Library / Arne Rettedals hus)
-        │  MQTT (gateway's embedded network server)
-        ▼
-[VPS — Docker Compose stack]
-   ├── Mosquitto (MQTT broker)
-   ├── ingest-service (Python, paho-mqtt) → decodes Milesight payloads
-   ├── TimescaleDB (Postgres, time-series data)
-   ├── api-service (FastAPI) → serves JSON to the frontend
-   ├── Grafana (internal admin/debug view, not public)
-   └── Nginx (reverse proxy, automatic HTTPS)
-        │
-        ▼
-[NanitesLab dashboard — HTML/CSS/JS + Chart.js]
-   ├── Displayed via Chrome kiosk mode on Raspberry Pi (Library + secondary building)
-   └── Public link + QR code for mobile viewing
-```
 
-Data does **not** go through Milesight IoT Cloud (no export API, only 3 months of downloadable history). The gateway's embedded MQTT/HTTP API feeds directly into the custom backend instead.
+Grafana provides an internal administration/debug view on server loopback.
+Data goes directly to the custom backend without Milesight IoT Cloud.
 
----
+**Planned addition:** UG65 gateways forwarding LoRaWAN traffic to a local
+ChirpStack network server, which publishes application uplinks to MQTT.
+This requires gateway/network-server configuration and deployment work;
+it is not enabled by the current Compose file. If MQTT is placed on a
+separate edge node, ingestion's broker connection and credentials must be
+configured accordingly; Compose currently fixes `MQTT_HOST` to `mosquitto`.
 
-## 2. Hardware
+## 3. Updated hardware and placement
 
-| Component | Model | Qty | Approx. price (NOK) |
-|---|---|---|---|
-| Indoor air quality sensor | Milesight AM103 | 12 (10 active + 2 spare) | ≈ 2,130/unit |
-| Electricity clamp sensor | Milesight CT305 (500A, 3-phase) | 3 | ≈ 2,420/unit |
-| Gateway | Milesight UG65 | 3 (1 per building) | ≈ 4,310/unit |
-| Display driver | Raspberry Pi 5 8GB | 2 | 2,290/unit |
-| — power adapter | Luxorparts 27W | 2 | 199/unit |
-| — case w/ fan | Raspberry Pi SC1159 | 2 | 149/unit |
-| — NVMe HAT (long-term reliability, replaces SD card) | Raspberry Pi NVMe HAT | 2 | 249.90/unit |
-| — NVMe SSD (256GB) | any compatible model | 2 | ≈ 350–450/unit |
+The full inventory, source prices, and reconciled totals are in
+[`hardware/README.md`](hardware/README.md). The proposed sensor/display fleet is:
 
-**Gateway placement:** central mid-floor/stairwell core per building — not the roof (worse signal path through all floors, plus weather exposure).
+| Equipment | Quantity | Intended placement |
+|---|---:|---|
+| Milesight AM103 | 12 | Air quality across KEH, EOJ, ARK, and SiS |
+| Milesight AM107 | 4 | Large auditoriums; climate, PIR activity, light, TVOC, pressure |
+| Milesight CT305 | 3 | One per major building: KEH, EOJ, ARK |
+| Milesight UG65 | 3 | One per major building; verify overlapping SiS coverage |
+| Samsung signage TV | 3 | One per major building, opening the web URL |
+| Wall mount | 3 | One per TV |
+| GMKtec G10 | 1 | Listed as ChirpStack/MQTT node; server/edge role unresolved |
+| 1TB SSD | 1 | Source assigns it to the excluded Mac Studio; role unresolved |
 
-**Sensor placement:** 3–4 AM103 per building in high-use lecture halls/reading rooms/common areas; 1 CT305 per building on the main distribution panel (requires Driftsenheten access approval).
+The AM103 source notes say 10 active + 3 spares despite a quantity of 12.
+With 10 active, two units remain spare unless the quantity is revised.
 
----
+See [`hardware/sensor-placement.md`](hardware/sensor-placement.md) for siting
+and [`docs/driftsenheten-dialog.md`](docs/driftsenheten-dialog.md) for CT305
+distribution-panel access.
 
-## 3. Repository / Code Structure
+## 4. Repository structure
 
-```
+```text
 naniteslab/
-├── docker-compose.yml
-├── .env.example
-├── README.md
-│
-├── ingest/                        # MQTT → database
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── main.py                    # subscribes to gateway MQTT topics
-│   └── decoders/
-│       ├── am103_decoder.py       # Milesight AM103 payload → JSON
-│       └── ct305_decoder.py       # Milesight CT305 payload → JSON
-│
-├── api/                           # FastAPI — serves data to the frontend
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── main.py
-│   ├── routers/
-│   │   ├── buildings.py           # /api/buildings/{id}/current
-│   │   └── history.py             # /api/buildings/{id}/history?range=24h
-│   └── db.py                      # TimescaleDB connection
-│
-├── db/
-│   ├── init.sql                   # table schema
-│   └── retention_policy.sql       # downsampling: raw data 90 days → hourly averages
-│
-├── frontend/                      # Static dashboard (HTML/CSS/JS + Chart.js)
-│   ├── index.html                 # main view (all 3 buildings, passive display)
-│   ├── mobile.html                # simplified view for QR/phone
-│   ├── js/
-│   │   ├── charts.js
-│   │   └── api-client.js
-│   └── assets/
-│       └── qr-code.svg
-│
-├── kiosk/                         # Raspberry Pi setup
-│   ├── kiosk.service              # systemd service (Restart=always)
-│   ├── watchdog.sh                # cron: checks Chromium/network are alive
-│   └── setup.md                   # install steps for each Pi
-│
-├── hardware/
-│   ├── sensor-placement.md
-│   └── gateway-config/            # UG65 configuration per building
-│
-├── docs/
-│   ├── application/                # application text, budget, timeline
-│   └── driftsenheten-dialog.md
-│
-└── report/
-    └── january-2027-report.md
+├── docker-compose.yml      # six running services + one migration job
+├── Caddyfile               # HTTPS reverse proxy to FastAPI
+├── .env.example            # runtime configuration template
+├── run.sh                  # Linux launcher
+├── mosquitto/              # broker configuration, ACLs, startup script
+├── ingest/                 # MQTT parser, device registry, Milesight decoders
+├── app/
+│   ├── core/               # runtime settings
+│   ├── db/migrations/      # schema, seeded buildings, retention policies
+│   ├── routers/            # JSON endpoints and HTML page routes
+│   ├── schemas/            # API response models
+│   ├── services/           # queries, quality rules, analytics
+│   ├── templates/          # signage, overview, mobile pages
+│   └── static/             # JavaScript, CSS, QR asset
+├── hardware/               # imported CSV, inventory notes, placement, gateways
+├── tests/                  # Python, frontend, and Docker integration checks
+├── docs/                   # Samsung signage setup; installation coordination
+└── report/                 # final report template
 ```
 
----
+## 5. Linux server and public access
 
-## 4. Backend — Docker Compose Services
+Install Docker Engine and the Docker Compose plugin on the dedicated Linux
+PC. Run `bash run.sh` for first-time address/credential setup, and follow the
+[`README.md`](README.md) quick start. The existing services are:
 
-| Service | Role | Notes |
-|---|---|---|
-| `mosquitto` | MQTT broker | Receives data from the UG65 gateways |
-| `ingest` | Python script | Decodes Milesight payloads, writes to TimescaleDB |
-| `timescaledb` | Postgres + time-series extension | All sensor history |
-| `api` | FastAPI | JSON endpoints for the frontend |
-| `grafana` | Internal admin view | Not public — internal debugging only |
-| `Nginx` | Reverse proxy | Automatic HTTPS, serves frontend + api |
+| Compose service | Role |
+|---|---|
+| `mosquitto` | Authenticated MQTT broker with gateway/ingest ACLs |
+| `migrate` | Ordered database upgrades before ingestion/API startup |
+| `ingest` | AM103/AM107/CT305 decoding and transactional database writes |
+| `timescaledb` | Sensor registry, readings, hourly aggregates |
+| `api` | FastAPI JSON endpoints, templates, and static assets |
+| `grafana` | Internal administration/debugging, bound to loopback |
+| `caddy` | HTTPS reverse proxy to FastAPI |
 
-**VPS requirements:** 1–2 vCPU, 1–2 GB RAM, 20 GB disk is comfortably enough (see storage estimate below). A EU-based provider like Hetzner is recommended — campus networks typically block inbound connections, which would break the public dashboard link.
+Arrange the domain, public endpoint, firewall rules, and certificate validation
+with UiS IT. In the current direct-Caddy setup, ports 80/443 reach the Linux
+PC. If UiS provides its own public reverse proxy, agree the TLS/routing setup
+and adapt this deployment before cutover. Public DNS pointing at a campus
+private IP alone is insufficient for off-campus mobile access.
 
----
+Only the web endpoint is intended for public use. MQTT remains on loopback
+or an approved private VPN interface with an encrypted gateway path. Grafana
+is reached through an SSH tunnel; TimescaleDB has no published host port.
 
-## 5. Data Volume & Storage
+Disable server sleep, arrange startup after power loss, keep OS/container
+updates maintained, and back up the database to a separate destination.
+Container restart policies restore an existing stack when Docker starts.
 
-- 13 active devices (10 AM103 + 3 CT305), reporting roughly every 15 minutes
-- ≈ 1,250 messages/day total
-- ≈ 200–300 MB/year of raw data
-- Retention policy: raw data kept for 90 days, older data rolled into hourly averages — keeps the dashboard fast indefinitely
+## 6. Signage setup
 
-20 GB of disk covers several years of operation with comfortable margin, including Grafana, logs, and backups.
+Configure Samsung's integrated URL feature to open `https://<DOMAIN>/`
+automatically. The Linux PC serves the webpage; its JavaScript rotates the
+display content and requests fresh API data. The Samsung screen handles URL
+startup and recovery after a power/network interruption.
 
----
+Use [`docs/signage-setup.md`](docs/signage-setup.md) to verify server/network
+access, data refresh, and restart behaviour on the actual displays.
 
-## 6. Raspberry Pi Kiosk Setup
+## 7. Data volume and retention
 
-- **Storage:** NVMe SSD via NVMe HAT — not microSD (avoids the main cause of Pi kiosk failures under years of continuous operation)
-- **Kiosk mode:** `systemd` service launching Chromium in kiosk mode against the dashboard URL, with `Restart=always`
-- **Security/updates:** `unattended-upgrades` enabled for automatic security patches
-- **Monitoring:** simple cron-based watchdog checking that Chromium/network are alive, restarting if not
-- **Alternative:** Screenly OSE (open-source digital signage platform) if a ready-made kiosk/watchdog solution with remote management of both screens is preferred
+- At 10 active AM103 + 4 AM107 + 3 CT305, the planned fleet has 17 devices.
+- At one uplink every 15 minutes each, that is approximately 1,632 uplinks/day.
+- Activating all 12 AM103 instead gives 19 devices and 1,824 uplinks/day.
+- These are planning counts; actual
+  message/storage volume depends on payloads and occupancy reporting cadence.
+- Raw readings are retained for 90 days; hourly aggregates are kept indefinitely
+  (`app/db/migrations/0002_retention.sql`). Retention refresh/replay behaviour
+  must be considered before enabling historical sensor uploads.
+- Ingestion currently subscribes at QoS 0. Database-outage replay, persistent
+  edge buffering, and durable deduplication are follow-up work. A local broker
+  alone does not establish offline data resilience.
 
-**Expected lifespan:** Raspberry Pi 5 has guaranteed production until at least January 2038 (key components through 2042). Real-world operational life under continuous IoT/kiosk use is typically 7–10 years, especially with NVMe storage and a proper power adapter — well beyond the project's funded lifetime.
+## 8. Remaining implementation and installation work
 
----
-
-## 7. Public Access
-
-- **Screens (Library + secondary building):** Raspberry Pi → Chromium kiosk mode → `frontend/index.html`, passive view of all three buildings at once
-- **Mobile/personal device:** QR code → `frontend/mobile.html`, served via Nginx over HTTPS
-- **Internal debugging:** Grafana, accessible only to project participants (not publicly linked)
-
----
-
-## 8. Open Items
-
-- [ ] Confirm distribution panel access with Driftsenheten (follow-up email sent)
-- [ ] Decide on hosting internally via UiS IT vs. external VPS (Hetzner)
-- [ ] Domain/subdomain for the dashboard link (ideally under uis.no)
-- [ ] Decide whether a third participant joins the project
+- [ ] Resolve whether the GMKtec is the Linux application host or a separate edge node.
+- [ ] Confirm the Linux PC's storage; remove/reassign the CSV's Mac Studio SSD note.
+- [ ] Reconcile 12 AM103 versus the note claiming 10 active + 3 spares.
+- [ ] Confirm exact TV SKU/size and test its built-in URL feature with the webpage.
+- [ ] Decide/deploy ChirpStack and its gateway/MQTT integration.
+- [x] Add AM107 device-type support, payload decoding, and air-sensor analytics.
+- [ ] Define occupancy/light metrics and energy-per-occupied-hour methodology;
+  ventilation-control integration is not part of the current application.
+- [x] Add EOJ/SiS to the active database registry; archive Library without deleting its data.
+- [ ] Register actual sensor DevEUIs and room assignments; the CSV contains model quantities only.
+- [ ] Verify LoRaWAN coverage in each intended room, including SiS.
+- [ ] Confirm CT305 distribution-panel access with Driftsenheten.
+- [ ] Agree a stable domain and exposed HTTPS route with UiS IT.
+- [ ] Verify the live sensor path, all three screen startups, and backup recovery.
+- [ ] Decide whether a third participant joins the project.

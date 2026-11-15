@@ -1,2 +1,6 @@
 # Test-only dependencies. Install with: pip install -r requirements-dev.txt
+-r app/requirements.txt
+-r ingest/requirements.txt
 pytest>=8,<9
+httpx>=0.28,<1.0
+zxing-cpp>=2.3,<4.0

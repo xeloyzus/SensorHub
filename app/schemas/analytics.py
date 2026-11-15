@@ -18,6 +18,8 @@ class Freshness(BaseModel):
 class DataQuality(BaseModel):
     active_sensors: int
     stale_sensors: int
+    registered_sensors: int = 0
+    missing_sensors: int = 0
     coverage_24h: float
     freshness: Freshness
 
@@ -34,6 +36,10 @@ class MetricStatistics(BaseModel):
     change_1h: float | None = None
     sample_count: int
     source_count: int
+    registered_source_count: int = 0
+    trend_source_count: int = 0
+    sustained_minutes: float = 0
+    sustained_device_ids: list[int] = Field(default_factory=list)
     coverage_24h: float
 
 

@@ -7,7 +7,7 @@ class RuntimeStatus(BaseModel):
     app: str
     mode: str
     data_source: str
-    demo_mode: bool
+    dashboard_url: str
     database_configured: bool
     gateway_ingest_expected: bool
-    kiosk_refresh_seconds: int
+    display_refresh_seconds: int

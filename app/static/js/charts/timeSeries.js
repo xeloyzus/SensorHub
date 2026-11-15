@@ -5,7 +5,25 @@
  * [{ time: Date|string, value: number }]
  */
 
-function renderTimeSeriesChart({ container, data, metric, options = {} }) {
+function renderTimeSeriesChart(config) {
+  const root = typeof config.container === "string" ? document.querySelector(config.container) : config.container;
+  if (!root) return;
+  root.chartConfig = { ...config, container: root };
+  // Reuse the fetched data after rotation; no extra API call is needed.
+  if (typeof ResizeObserver !== "undefined" && !root.chartObserver) {
+    let lastSize = "";
+    root.chartObserver = new ResizeObserver(() => {
+      const size = `${root.clientWidth}:${root.clientHeight}`;
+      if (size === lastSize) return;
+      lastSize = size;
+      drawTimeSeriesChart(root.chartConfig);
+    });
+    root.chartObserver.observe(root);
+  }
+  drawTimeSeriesChart(root.chartConfig);
+}
+
+function drawTimeSeriesChart({ container, data, metric, options = {} }) {
   const root = typeof container === "string" ? document.querySelector(container) : container;
   if (!root) return;
 
@@ -23,9 +41,13 @@ function renderTimeSeriesChart({ container, data, metric, options = {} }) {
     return;
   }
 
-  const width = Math.max(root.clientWidth || 720, 320);
-  const height = options.height || 340;
-  const margin = options.margin || { top: 22, right: 28, bottom: 42, left: 58 };
+  const style = getComputedStyle(root);
+  const width = Math.max(1, root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+  const height = options.fitContainer
+    ? Math.max(160, root.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+    : options.height || 340;
+  const requestedMargin = options.margin || { top: 22, right: 28, bottom: 42, left: 58 };
+  const margin = { ...requestedMargin, left: Math.min(requestedMargin.left, width * 0.24), right: Math.min(requestedMargin.right, width * 0.08) };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
   const unit = options.unit || "";
@@ -83,7 +105,7 @@ function renderTimeSeriesChart({ container, data, metric, options = {} }) {
   g.append("g")
     .attr("class", "axis axis-x")
     .attr("transform", `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(Math.min(6, rows.length)).tickSizeOuter(0));
+    .call(d3.axisBottom(x).ticks(Math.max(2, Math.min(6, rows.length, Math.floor(innerWidth / 90)))).tickSizeOuter(0));
 
   g.append("g")
     .attr("class", "axis axis-y")
@@ -101,7 +123,7 @@ function renderTimeSeriesChart({ container, data, metric, options = {} }) {
     .datum(displayRows)
     .attr("class", "series-line")
     .attr("fill", "none")
-    .attr("stroke", options.color || "#276c77")
+    .attr("stroke", options.color || "#09298b")
     .attr("stroke-width", options.strokeWidth || 2.5)
     .attr("stroke-linecap", "round")
     .attr("stroke-linejoin", "round")
@@ -156,11 +178,11 @@ function renderTimeSeriesChart({ container, data, metric, options = {} }) {
     .attr("cx", x(latest.time))
     .attr("cy", y(latest.value))
     .attr("r", 5)
-    .attr("fill", options.color || "#276c77");
+    .attr("fill", options.color || "#09298b");
 
   const focus = g.append("g").attr("class", "chart-focus").style("display", "none");
   focus.append("line").attr("class", "crosshair").attr("y1", 0).attr("y2", innerHeight);
-  focus.append("circle").attr("r", 4).attr("fill", options.color || "#276c77");
+  focus.append("circle").attr("r", 4).attr("fill", options.color || "#09298b");
 
   const tooltip = d3.select(root).append("div").attr("class", "chart-tooltip").attr("hidden", true);
   const bisect = d3.bisector((d) => d.time).center;
@@ -185,11 +207,11 @@ function renderTimeSeriesChart({ container, data, metric, options = {} }) {
       tooltip
         .attr("hidden", null)
         .style("left", `${Math.min(width - 190, margin.left + x(point.time) + 12)}px`)
-        .style("top", `${Math.max(8, margin.top + y(point.value) - 48)}px`)
-        .html(
-          `<strong>${point.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</strong>` +
-            `<span>${metric.label}: ${formatNumber(point.value, metric.decimals)} ${unit}</span>`
-        );
+        .style("top", `${Math.max(8, margin.top + y(point.value) - 48)}px`);
+      // Building names come from the registry; render labels as text.
+      tooltip.selectAll("*").remove();
+      tooltip.append("strong").text(point.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+      tooltip.append("span").text(`${metric.label}: ${formatNumber(point.value, metric.decimals)} ${unit}`);
     })
     .on("mouseleave blur", () => {
       focus.style("display", "none");

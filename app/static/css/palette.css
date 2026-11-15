@@ -1,0 +1,15 @@
+/* Shared campus palette. Blue/navy sampled from https://www.uis.no/nb;
+   forest green is the dashboard's sustainability accent. */
+:root {
+  --color-white: #ffffff;
+  --color-navy: #051850;
+  --color-blue: #09298b;
+  --color-green: #24734d;
+  --color-green-soft: #eaf4ee;
+  --color-green-light: #c5e6d2;
+  --color-page: #f4f6fa;
+  --color-muted: #4f6078;
+  --color-border: #d7dfec;
+  --color-amber: #8a5700;
+  --color-red: #b13e35;
+}

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .building import Building
 
@@ -12,6 +12,8 @@ class Sensor(BaseModel):
     label: str
     type: str
     readings: dict[str, float]
+    updated: datetime | None = None
+    metric_updated: dict[str, datetime] = Field(default_factory=dict)
 
 
 class CurrentResponse(BaseModel):

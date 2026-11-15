@@ -1,1 +1,1 @@
-"""NanitesLab API package."""
+"""Campus dashboard API package."""

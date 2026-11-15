@@ -1,26 +1,33 @@
 /**
- * Thin HTTP client for the NanitesLab API.
+ * Thin HTTP client for the Campus dashboard API.
  * The dashboard is served by Caddy on the same origin, so all URLs are relative.
  */
 
 const API_BASE = "/api";
 
 /** GET a JSON endpoint, throwing on non-2xx responses. */
-async function getJSON(path) {
-  const response = await fetch(API_BASE + path, {
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    let detail = "";
-    try {
-      const payload = await response.json();
-      detail = payload.detail ? `: ${payload.detail}` : "";
-    } catch {
-      detail = "";
+async function getJSON(path, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(API_BASE + path, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const payload = await response.json();
+        detail = payload.detail ? `: ${payload.detail}` : "";
+      } catch {
+        detail = "";
+      }
+      throw new Error(`API ${path} failed (${response.status})${detail}`);
     }
-    throw new Error(`API ${path} failed (${response.status})${detail}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return response.json();
 }
 
 /** List all buildings. */
@@ -53,7 +60,7 @@ function getMethodology() {
   return getJSON("/methodology");
 }
 
-/** Runtime mode and data-source status for deployment and kiosk diagnostics. */
+/** Runtime mode and data-source status for deployment and display diagnostics. */
 function getSystemStatus() {
   return getJSON("/system/status");
 }
@@ -71,6 +78,7 @@ function aggregateMetricHistory(history, metric, options = {}) {
 
   for (const series of (history.series || []).filter((item) => item.metric === metric)) {
     for (const point of series.points || []) {
+      if (point.value == null) continue;
       const key = bucketTimestamp(point.time, bucketMinutes);
       const value = Number(point.value);
       if (!key || !Number.isFinite(value)) continue;

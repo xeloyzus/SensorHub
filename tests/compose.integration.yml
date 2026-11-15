@@ -1,0 +1,11 @@
+# Run core services and the migration job in the isolated test project.
+# See tests/run_integration.py; production services/volumes are not reused.
+services:
+  api:
+    ports:
+      - "127.0.0.1:${INTEGRATION_API_PORT:-18080}:8000"
+  ingest:
+    volumes:
+      - ./tests:/tests:ro
+      - ./app/db/migrations:/migrations:ro
+      - ./hardware:/hardware:ro

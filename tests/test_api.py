@@ -16,20 +16,21 @@ def test_openapi_paths():
             "/api/campus/summary",
             "/api/methodology",
             "/api/system/status",
+            "/api/sensor-models",
             "/health",
         ]
     )
 
 
 def test_app_title():
-    assert app.title == "NanitesLab API"
+    assert app.title == "Campus dashboard API"
 
 
 def test_frontend_wiring():
     from app.routers import pages
 
-    # Kiosk, web overview, and mobile HTML pages are registered on the pages router.
-    assert {r.path for r in pages.router.routes} == {"/", "/kiosk", "/mobile", "/overview"}
+    # Display, web overview, and mobile HTML pages are registered on the pages router.
+    assert {r.path for r in pages.router.routes} == {"/", "/display", "/mobile", "/overview"}
 
     # Static assets are mounted at /static.
     assert any(getattr(r, "path", None) == "/static" for r in app.routes)
@@ -37,7 +38,7 @@ def test_frontend_wiring():
     # HTML pages are excluded from the JSON API schema.
     api_paths = app.openapi()["paths"]
     assert "/" not in api_paths
-    assert "/kiosk" not in api_paths
+    assert "/display" not in api_paths
     assert "/mobile" not in api_paths
     assert "/overview" not in api_paths
 
@@ -48,14 +49,17 @@ def test_runtime_status_contract(monkeypatch):
     from app.core.config import settings
     from app.routers import system
 
-    monkeypatch.setattr(settings, "demo_mode", False)
     monkeypatch.setattr(settings, "database_url", "postgresql://user:pass@db:5432/naniteslab")
-    monkeypatch.setattr(settings, "kiosk_refresh_seconds", 45)
+    monkeypatch.setattr(settings, "display_refresh_seconds", 45)
 
-    status = asyncio.run(system.status())
+    from starlette.requests import Request
+    request = Request({"type": "http", "scheme": "https", "server": ("dashboard.uis.no", 443), "headers": [], "path": "/api/system/status", "root_path": ""})
+    status = asyncio.run(system.status(request))
 
+    assert status.app == "Campus dashboard"
+    assert status.dashboard_url == "https://dashboard.uis.no/overview"
     assert status.mode == "live"
     assert status.data_source == "timescaledb"
     assert status.database_configured is True
     assert status.gateway_ingest_expected is True
-    assert status.kiosk_refresh_seconds == 45
+    assert status.display_refresh_seconds == 45

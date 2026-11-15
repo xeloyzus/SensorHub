@@ -35,15 +35,15 @@ function escapeHtml(text) {
 }
 
 function refreshIntervalMs(status) {
-  const seconds = Number(status && status.kiosk_refresh_seconds);
+  const seconds = Number(status && status.display_refresh_seconds);
   return Number.isFinite(seconds) && seconds >= 10 ? seconds * 1000 : PULSE_REFRESH_MS;
 }
 
 function renderDataSource(status) {
   const badge = document.getElementById("data-source-badge");
   if (!badge || !status) return;
-  badge.textContent = status.demo_mode ? "Demo data" : "Live sensors";
-  badge.className = `freshness-badge ${status.demo_mode ? "delayed" : "current"}`;
+  badge.textContent = "Sensor readings";
+  badge.className = "freshness-badge current";
 }
 
 function freshnessLabel(freshness) {
@@ -76,7 +76,7 @@ function renderBuildings(buildings) {
           ${
             recommendation
               ? `<div class="mini-recommendation">Possible action · ${escapeHtml(recommendation.verification)}</div>`
-              : `<div class="mini-recommendation quiet">No action suggestion from this data slice.</div>`
+              : `<div class="mini-recommendation quiet">No action suggested right now.</div>`
           }
         </article>
       `;
@@ -88,7 +88,7 @@ function renderInsights(summary) {
   const feed = document.getElementById("insight-feed");
   const insights = summary.insights.length
     ? summary.insights
-    : [{ title: "No notable pattern yet", body: "The dashboard did not detect a meaningful change from this data slice.", severity: "info" }];
+    : [{ title: "No notable pattern yet", body: "The dashboard did not detect a meaningful change in the recent readings.", severity: "info" }];
   feed.innerHTML = insights
     .map(
       (insight) => `
@@ -108,9 +108,9 @@ function renderRecommendations(summary) {
   if (!recommendations.length) {
     feed.innerHTML = `
       <article class="insight-card">
-        <span>suppressed</span>
-        <h3>No recommendation is shown</h3>
-        <p>No building currently has enough fresh evidence for an action suggestion.</p>
+        <span>Monitoring</span>
+        <h3>No action suggested right now</h3>
+        <p>Suggestions appear when enough recent readings show a sustained change.</p>
       </article>
     `;
     return;
@@ -136,11 +136,13 @@ async function renderCampusChart(summary, methodology) {
   const bestBuilding = summary.buildings
     .filter((building) => building.co2.source_count > 0)
     .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0))[0];
-  if (!bestBuilding) return;
-
-  const history = await getHistory(bestBuilding.building.id, "24h");
+  const history = bestBuilding ? await getHistory(bestBuilding.building.id, "24h") : { series: [] };
   const data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
-  if (!data.length) return;
+  if (!data.length) {
+    renderTimeSeriesChart({ container: "#co2-chart", data: [], metric: { label: "CO2" } });
+    document.getElementById("timeline-summary").textContent = "No CO2 history is available yet. Readings will appear as sensors report.";
+    return;
+  }
 
   renderTimeSeriesChart({
     container: "#co2-chart",
@@ -148,7 +150,7 @@ async function renderCampusChart(summary, methodology) {
     metric: { label: `${bestBuilding.building.name} average CO2`, decimals: 0 },
     options: {
       unit: "ppm",
-      color: "#276c77",
+      color: "#09298b",
       includeZero: false,
       smoothingWindow: 3,
       thresholds: methodology.co2_bands || [],
@@ -171,7 +173,7 @@ async function initCampusPulse() {
       const [summary, methodology] = await Promise.all([getCampusSummary(), getMethodology()]);
       document.getElementById("campus-status").textContent =
         summary.co2.current == null
-          ? "Campus data is available, but no CO2 aggregate can be calculated yet."
+          ? "Waiting for the first campus CO2 readings."
           : `Average campus CO2 is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} air sensors.`;
       const badge = document.getElementById("freshness-badge");
       badge.textContent = freshnessLabel(summary.data_quality.freshness);
@@ -190,17 +192,21 @@ async function initCampusPulse() {
       renderInsights(summary);
       renderRecommendations(summary);
       await renderCampusChart(summary, methodology);
+      document.getElementById("overview-error").hidden = true;
     } catch (error) {
-      document.getElementById("campus-pulse").innerHTML = `
-        <section class="pulse-section">
-          <h1>Dashboard unavailable</h1>
-          <p class="error">Could not load the Campus Pulse data: ${escapeHtml(error.message)}</p>
-          <p>The dashboard is configured for ${status && status.demo_mode ? "demo data" : "live sensor data"} and will recover when the API responds.</p>
-        </section>
-      `;
+      const banner = document.getElementById("overview-error");
+      banner.textContent = "The sensor connection is unavailable. Any values shown may be out of date. Reconnecting automatically.";
+      banner.hidden = false;
+      const badge = document.getElementById("freshness-badge");
+      badge.textContent = "Connection unavailable";
+      badge.className = "freshness-badge stale";
     }
   };
 
   await render();
-  setInterval(render, refreshIntervalMs(status));
+  const refresh = async () => {
+    await render();
+    setTimeout(refresh, refreshIntervalMs(status));
+  };
+  setTimeout(refresh, refreshIntervalMs(status));
 }

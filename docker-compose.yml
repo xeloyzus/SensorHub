@@ -1,4 +1,5 @@
-# NanitesLab — single-VPS production stack.
+# Campus dashboard — dedicated Linux PC production stack.
+# ChirpStack / a separate edge broker are not included in this configuration.
 #
 #   mosquitto   MQTT broker that receives uplinks from the UG65 gateways
 #   ingest      decodes Milesight payloads and writes them to TimescaleDB
@@ -23,9 +24,15 @@ services:
     image: eclipse-mosquitto:2
     restart: unless-stopped
     ports:
-      - "1883:1883"            # gateways publish here (public internet)
+      - "${MQTT_BIND_ADDRESS:-127.0.0.1}:${MQTT_PORT:-1883}:1883"
+    entrypoint: ["/bin/sh", "/mosquitto/config/start.sh"]
+    environment:
+      MQTT_GATEWAY_PASSWORD: ${MQTT_GATEWAY_PASSWORD:?set MQTT_GATEWAY_PASSWORD in .env}
+      MQTT_INGEST_PASSWORD: ${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD in .env}
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/start.sh:/mosquitto/config/start.sh:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
 
@@ -38,13 +45,23 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - timescale-data:/var/lib/postgresql/data
-      # SQL migrations run once, in filename order, on first boot.
-      - ./app/db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-naniteslab} -d ${POSTGRES_DB:-naniteslab}"]
       interval: 10s
       timeout: 5s
       retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    restart: "no"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
+    command: ["python", "-m", "app.db.migrate"]
 
   ingest:
     build: ./ingest
@@ -54,11 +71,15 @@ services:
         condition: service_started
       timescaledb:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
       MQTT_HOST: mosquitto
-      MQTT_PORT: ${MQTT_PORT:-1883}
-      MQTT_TOPIC: ${MQTT_TOPIC:-#}
+      MQTT_PORT: 1883
+      MQTT_TOPIC: ${MQTT_TOPIC:-application/+/device/+/event/up}
+      MQTT_USERNAME: naniteslab-ingest
+      MQTT_PASSWORD: ${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD in .env}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
   api:
@@ -69,21 +90,36 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
-      DEMO_MODE: ${DEMO_MODE:-0}
-      KIOSK_REFRESH_SECONDS: ${KIOSK_REFRESH_SECONDS:-60}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
+      DISPLAY_REFRESH_SECONDS: ${DISPLAY_REFRESH_SECONDS:-60}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     expose:
       - "8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 20s
 
   grafana:
     image: grafana/grafana:11.3.1  # pinned — a future major would be breaking
     restart: unless-stopped
     # Internal debugging only. Bound to loopback: reach it via an SSH tunnel
-    # (ssh -L 3000:localhost:3000 user@vps) rather than a public URL.
+    # (ssh -L 3000:localhost:3000 user@linux-server) rather than a public URL.
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3200:3000"
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
@@ -95,10 +131,11 @@ services:
     image: caddy:2
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
     volumes:

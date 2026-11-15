@@ -1,32 +1,33 @@
 {% extends "base.html" %}
 
-{% block title %}NanitesLab — UiS Campus Pulse{% endblock %}
+{% block title %}Campus dashboard — Overview{% endblock %}
 
 {% block body_class %}pulse-page{% endblock %}
 
 {% block head %}
-<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="/static/vendor/d3/d3.min.js?v=7.9.0"></script>
 {% endblock %}
 
 {% block content %}
 <header class="pulse-header">
-  <a class="pulse-brand" href="/" aria-label="NanitesLab home">
-    <span>NanitesLab</span>
-    <strong>UiS Campus Pulse</strong>
+  <a class="pulse-brand" href="/" aria-label="Campus dashboard home">
+    <span>Live campus data</span>
+    <strong>Indoor climate &amp; energy</strong>
   </a>
   <nav class="pulse-nav" aria-label="Primary navigation">
-    <a href="/" aria-current="page">Overview</a>
+    <a href="/overview" aria-current="page">Overview</a>
     <a href="#buildings">Buildings</a>
     <a href="#explore">Explore</a>
-    <a href="#about">About the Lab</a>
+    <a href="#about">About</a>
   </nav>
-  <a class="pulse-link" href="/kiosk">Kiosk</a>
+  <a class="pulse-link" href="/">Display</a>
 </header>
 
 <main id="campus-pulse" class="pulse-shell">
+  <p id="overview-error" class="error" role="alert" hidden></p>
   <section class="pulse-hero" aria-labelledby="pulse-title">
     <div class="pulse-hero-copy">
-      <p class="eyebrow">Live campus sustainability lab</p>
+      <p class="eyebrow">Latest campus readings</p>
       <h1 id="pulse-title">How is campus doing right now?</h1>
       <p id="campus-status" class="pulse-status">Loading the latest sensor data...</p>
       <div class="pulse-meta">
@@ -57,7 +58,7 @@
   <section class="pulse-section" aria-labelledby="timeline-title">
     <div class="section-head">
       <div>
-        <p class="eyebrow">Primary visualization</p>
+        <p class="eyebrow">Trends</p>
         <h2 id="timeline-title">CO2 over the last 24 hours</h2>
       </div>
       <p id="timeline-summary" class="chart-summary">The chart summary will appear after data loads.</p>
@@ -71,7 +72,7 @@
         <p class="eyebrow">Buildings</p>
         <h2 id="buildings-title">Where is it happening?</h2>
       </div>
-      <p>Each card shows the underlying value, data freshness, and 24-hour context.</p>
+      <p>Compare the latest readings, their age, and changes over the past day.</p>
     </div>
     <div id="building-grid" class="building-grid" aria-live="polite"></div>
   </section>
@@ -100,17 +101,17 @@
   <section id="explore" class="pulse-section split-section" aria-labelledby="explore-title">
     <div>
       <p class="eyebrow">Explore</p>
-      <h2 id="explore-title">Inspect the data, not just the headline</h2>
-      <p>Use the building cards and CO2 timeline as the first lightweight data laboratory. The next phases can add heatmaps, relationships, CSV export, and intervention analysis on top of these same endpoints.</p>
+      <h2 id="explore-title">Explore the readings</h2>
+      <p>Compare buildings, follow CO2 trends, and check how fresh each reading is. Open the summary to see the values behind the dashboard.</p>
     </div>
-    <a class="text-button" href="/api/campus/summary">Open JSON summary</a>
+    <a class="text-button" href="/api/campus/summary">View data summary</a>
   </section>
 
   <section id="about" class="pulse-section split-section" aria-labelledby="about-title">
     <div>
-      <p class="eyebrow">About the lab</p>
-      <h2 id="about-title">From sensors to evidence-backed action</h2>
-      <p>Sensor data flows from LoRaWAN devices through MQTT, TimescaleDB, FastAPI, and this dashboard. Recommendations are deterministic and expose their evidence, confidence, and verification step.</p>
+      <p class="eyebrow">About the measurements</p>
+      <h2 id="about-title">Understanding your campus</h2>
+      <p>Campus sensors measure indoor climate and electricity use. Each suggested action includes its supporting evidence, confidence, and a way to check whether it helped.</p>
     </div>
     <a class="text-button" href="/api/methodology">Methodology</a>
   </section>
@@ -118,8 +119,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/api-client.js"></script>
-<script src="/static/js/charts/timeSeries.js"></script>
-<script src="/static/js/dashboard.js"></script>
+<script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
+<script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
+<script src="/static/js/dashboard.js?v=20261101-campus-colours"></script>
 <script>initCampusPulse();</script>
 {% endblock %}

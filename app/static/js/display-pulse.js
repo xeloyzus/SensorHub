@@ -1,16 +1,16 @@
-const KIOSK_DEFAULT_SCENE_MS = 12_000;
-const KIOSK_REFRESH_MS = 60_000;
-const KIOSK_PRESETS = {
+const DISPLAY_DEFAULT_SCENE_MS = 12_000;
+const DISPLAY_REFRESH_MS = 60_000;
+const DISPLAY_PRESETS = {
   lobby: { sceneMs: 12_000, density: "balanced" },
   hallway: { sceneMs: 9_000, density: "glance" },
   "small-screen": { sceneMs: 14_000, density: "compact" },
 };
 
-function kioskConfig() {
+function displayConfig() {
   const params = new URLSearchParams(window.location.search);
   const presetName = params.get("preset") || "lobby";
-  const preset = KIOSK_PRESETS[presetName] || KIOSK_PRESETS.lobby;
-  const sceneMs = Number(params.get("scene_ms")) || preset.sceneMs || KIOSK_DEFAULT_SCENE_MS;
+  const preset = DISPLAY_PRESETS[presetName] || DISPLAY_PRESETS.lobby;
+  const sceneMs = Number(params.get("scene_ms")) || preset.sceneMs || DISPLAY_DEFAULT_SCENE_MS;
   return {
     presetName,
     sceneMs,
@@ -45,30 +45,33 @@ function escapeHtml(text) {
 }
 
 function refreshIntervalMs(status) {
-  const seconds = Number(status && status.kiosk_refresh_seconds);
-  return Number.isFinite(seconds) && seconds >= 10 ? seconds * 1000 : KIOSK_REFRESH_MS;
+  const seconds = Number(status && status.display_refresh_seconds);
+  return Number.isFinite(seconds) && seconds >= 10 ? seconds * 1000 : DISPLAY_REFRESH_MS;
 }
 
 function renderRuntimeStatus(status) {
-  const source = document.getElementById("kiosk-source");
+  const source = document.getElementById("display-source");
   if (!source || !status) return;
-  source.textContent = status.demo_mode ? "Demo data" : "Live sensors";
-  source.className = status.demo_mode ? "demo" : "live";
+  source.textContent = "Sensor readings";
+  source.className = "live";
 }
 
-function renderKioskUnavailable(error, status) {
-  const sourceLabel = status && status.demo_mode ? "demo data" : "live sensor data";
-  document.getElementById("kiosk-freshness").textContent = "Data unavailable";
-  document.getElementById("kiosk-freshness").className = "stale";
-  document.getElementById("kiosk-confidence").textContent = "Coverage --";
+function renderDisplayUnavailable(error, status) {
+  document.getElementById("display-pulse").dataset.state = "unavailable";
+  for (const id of ["display-co2", "display-temp", "display-energy"]) {
+    document.getElementById(id).textContent = "--";
+  }
+  document.getElementById("display-freshness").textContent = "Data unavailable";
+  document.getElementById("display-freshness").className = "stale";
+  document.getElementById("display-confidence").textContent = "Coverage --";
   document.getElementById("scene-campus-summary").textContent =
-    `Waiting for ${sourceLabel}. The display will retry automatically.`;
-  document.getElementById("kiosk-co2-context").textContent = error.message;
-  document.getElementById("kiosk-temp-context").textContent = "Gateway/API connection will be checked on the next refresh.";
-  document.getElementById("kiosk-chart-summary").textContent = "No live chart can be drawn until history data is available.";
-  document.getElementById("kiosk-quality-summary").textContent =
+    "Sensor readings are temporarily unavailable. Reconnecting automatically.";
+  document.getElementById("display-co2-context").textContent = "Waiting for the connection to recover";
+  document.getElementById("display-temp-context").textContent = "Readings will update when the connection returns";
+  document.getElementById("display-chart-summary").textContent = "No live chart can be drawn until history data is available.";
+  document.getElementById("display-quality-summary").textContent =
     "No current readings are available from the configured data source.";
-  document.getElementById("kiosk-updated").textContent = "Latest reading unavailable.";
+  document.getElementById("display-updated").textContent = "Latest reading unavailable.";
 }
 
 function freshnessText(freshness) {
@@ -124,6 +127,9 @@ function co2StatusSentence(metric, label = "Campus") {
 
 function confidenceSentence(summary) {
   const quality = summary.data_quality;
+  if (quality.freshness.status === "unknown") {
+    return "Some sensors have missing readings or invalid timestamps. Current conditions are only partially known.";
+  }
   const coverage = coveragePercent(summary.co2);
   if (quality.freshness.status === "stale") {
     return `Latest campus data is stale. Current conditions may differ from these readings.`;
@@ -135,38 +141,40 @@ function confidenceSentence(summary) {
 }
 
 function updateClock() {
-  document.getElementById("kiosk-clock").textContent = new Date().toLocaleTimeString([], {
+  document.getElementById("display-clock").textContent = new Date().toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
-function updateDashboardUrl() {
-  const target = document.getElementById("kiosk-dashboard-url");
+function updateDashboardUrl(status) {
+  const target = document.getElementById("display-dashboard-url");
   if (target) {
-    target.textContent = `${window.location.origin}/overview`;
+    const url = status?.dashboard_url || target.getAttribute("href") || `${window.location.origin}/overview`;
+    target.textContent = url;
+    target.href = url;
   }
 }
 
-function renderKioskSummary(summary) {
+function renderDisplaySummary(summary) {
   const freshness = summary.data_quality.freshness;
-  document.getElementById("kiosk-freshness").textContent = freshnessText(freshness);
-  document.getElementById("kiosk-freshness").className = freshnessClass(freshness);
-  document.getElementById("kiosk-confidence").textContent =
+  document.getElementById("display-freshness").textContent = freshnessText(freshness);
+  document.getElementById("display-freshness").className = freshnessClass(freshness);
+  document.getElementById("display-confidence").textContent =
     `${summary.data_quality.active_sensors} sensors · ${coveragePercent(summary.co2)}% coverage`;
-  document.getElementById("kiosk-updated").textContent = freshness.description;
+  document.getElementById("display-updated").textContent = freshness.description;
   document.getElementById("scene-campus-summary").textContent =
     summary.co2.current == null
-      ? "No current campus CO2 aggregate is available yet."
+      ? "Waiting for the first campus CO2 readings."
       : `${co2StatusSentence(summary.co2)} Average is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} reporting air sensors.`;
 
-  document.getElementById("kiosk-co2").textContent = metricValue(summary.co2);
-  document.getElementById("kiosk-co2-context").textContent =
+  document.getElementById("display-co2").textContent = metricValue(summary.co2);
+  document.getElementById("display-co2-context").textContent =
     `${metricTrend(summary.co2)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`;
-  document.getElementById("kiosk-temp").textContent = metricValue(summary.temperature, 1);
-  document.getElementById("kiosk-temp-context").textContent =
+  document.getElementById("display-temp").textContent = metricValue(summary.temperature, 1);
+  document.getElementById("display-temp-context").textContent =
     `${metricTrend(summary.temperature)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`;
-  document.getElementById("kiosk-energy").textContent =
+  document.getElementById("display-energy").textContent =
     summary.energy.current_kw == null ? "--" : `${formatNumber(summary.energy.current_kw, 1)} kW`;
 }
 
@@ -178,39 +186,39 @@ function renderLocalFocus(summary, config) {
   document.getElementById("scene-local-title").textContent = isConfigured
     ? "This building now"
     : "Highest CO2 now";
-  document.getElementById("kiosk-local-summary").textContent =
+  document.getElementById("display-local-summary").textContent =
     `${co2StatusSentence(building.co2, building.building.name)} Latest average is ${metricValue(building.co2)}.`;
 
   const recommendation = building.recommendations[0];
-  document.getElementById("kiosk-local-card").innerHTML = `
-    <article class="kiosk-focus-card">
-      <span class="kiosk-badge ${freshnessClass(building.data_quality.freshness)}">${escapeHtml(freshnessText(building.data_quality.freshness))}</span>
+  document.getElementById("display-local-card").innerHTML = `
+    <article class="display-focus-card">
+      <span class="display-badge ${freshnessClass(building.data_quality.freshness)}">${escapeHtml(freshnessText(building.data_quality.freshness))}</span>
       <h3>${escapeHtml(building.building.name)}</h3>
-      <div class="kiosk-focus-values">
+      <div class="display-focus-values">
         <strong>${metricValue(building.co2)}</strong>
         <span>${escapeHtml(metricTrend(building.co2))}</span>
       </div>
-      <p>${recommendation ? escapeHtml(recommendation.verification) : "No action suggestion from this data slice."}</p>
+      <p>${recommendation ? escapeHtml(recommendation.verification) : "No action suggested right now."}</p>
     </article>
   `;
 }
 
-function renderKioskBuildings(summary) {
-  const grid = document.getElementById("kiosk-building-grid");
+function renderDisplayBuildings(summary) {
+  const grid = document.getElementById("display-building-grid");
   grid.innerHTML = summary.buildings
     .map((building) => {
       const recommendation = building.recommendations[0];
       const freshness = building.data_quality.freshness;
       const action = recommendation
         ? `Possible action: ${recommendation.verification}`
-        : "No action suggestion from this data slice.";
+        : "No action suggested right now.";
       return `
-        <article class="kiosk-building-card">
+        <article class="display-building-card">
           <div>
             <h3>${escapeHtml(building.building.name)}</h3>
-            <span class="kiosk-badge ${freshness.status}">${escapeHtml(freshnessText(freshness))}</span>
+            <span class="display-badge ${freshness.status}">${escapeHtml(freshnessText(freshness))}</span>
           </div>
-          <div class="kiosk-building-values">
+          <div class="display-building-values">
             <span>CO2<strong>${metricValue(building.co2)}</strong></span>
             <span>Temp<strong>${metricValue(building.temperature, 1)}</strong></span>
             <span>Energy<strong>${building.energy.current_kw == null ? "--" : `${formatNumber(building.energy.current_kw, 1)} kW`}</strong></span>
@@ -228,18 +236,18 @@ function renderCampusMap(summary) {
     .filter((building) => building.co2.current != null)
     .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0));
   const highest = buildings[0];
-  document.getElementById("kiosk-map-summary").textContent = highest
+  document.getElementById("display-map-summary").textContent = highest
     ? `${highest.building.name} has the highest current CO2 average.`
     : "Building comparison is unavailable until CO2 readings arrive.";
 
   const max = Math.max(...buildings.map((building) => building.co2.current || 0), 1);
-  document.getElementById("kiosk-campus-map").innerHTML = buildings
+  document.getElementById("display-campus-map").innerHTML = buildings
     .map((building, index) => {
       const level = Math.max(18, Math.round(((building.co2.current || 0) / max) * 100));
       const tone = building.co2.current >= 1000 ? "attention" : building.co2.current >= 800 ? "watch" : "good";
       return `
-        <article class="kiosk-map-building ${tone}">
-          <div class="kiosk-map-bar" style="height: ${level}%"></div>
+        <article class="display-map-building ${tone}">
+          <div class="display-map-bar" style="height: ${level}%"></div>
           <span>${index + 1}</span>
           <h3>${escapeHtml(building.building.name)}</h3>
           <strong>${metricValue(building.co2)}</strong>
@@ -260,41 +268,45 @@ function renderDataQuality(summary) {
   } else if (quality.freshness.status === "delayed") {
     label.textContent = "Data delay";
     title.textContent = "Use as recent context";
+  } else if (quality.freshness.status === "unknown") {
+    label.textContent = "Missing telemetry";
+    title.textContent = "Some readings are unavailable";
   } else {
     label.textContent = "Trust the data";
     title.textContent = "Data confidence";
   }
 
-  document.getElementById("kiosk-quality-summary").textContent = confidenceSentence(summary);
-  document.getElementById("kiosk-quality-list").innerHTML = `
+  document.getElementById("display-quality-summary").textContent = confidenceSentence(summary);
+  document.getElementById("display-quality-list").innerHTML = `
     <span><strong>${summary.data_quality.active_sensors}</strong> reporting sensors</span>
     <span><strong>${summary.data_quality.stale_sensors}</strong> stale sensors</span>
+    <span><strong>${summary.data_quality.missing_sensors || 0}</strong> sensors with missing readings</span>
     <span><strong>${coveragePercent(summary.co2)}%</strong> CO2 coverage</span>
     <span><strong>${escapeHtml(freshnessText(quality.freshness))}</strong> freshness</span>
   `;
 }
 
-function renderKioskInsight(summary) {
+function renderDisplayInsight(summary) {
   const insight = summary.insights[0];
-  document.getElementById("kiosk-insight").textContent = insight
+  document.getElementById("display-insight").textContent = insight
     ? `${insight.title}. ${insight.body}`
-    : "No meaningful campus pattern has been detected from the current data slice.";
+    : "No meaningful campus pattern has been detected in the recent readings.";
 }
 
-function renderKioskAction(summary) {
+function renderDisplayAction(summary) {
   const recommendation = summary.buildings.flatMap((building) => building.recommendations)[0];
-  const audienceGrid = document.getElementById("kiosk-action-audiences");
+  const audienceGrid = document.getElementById("display-action-audiences");
   if (!recommendation) {
-    document.getElementById("kiosk-action").textContent =
+    document.getElementById("display-action").textContent =
       "No recommendation is shown because current evidence is insufficient or conditions are not elevated.";
-    document.getElementById("kiosk-verify").textContent = "";
+    document.getElementById("display-verify").textContent = "";
     audienceGrid.innerHTML = "";
     return;
   }
 
-  document.getElementById("kiosk-action").textContent =
+  document.getElementById("display-action").textContent =
     `${recommendation.title}. ${recommendation.interpretation}`;
-  document.getElementById("kiosk-verify").textContent = `Verify: ${recommendation.verification}`;
+  document.getElementById("display-verify").textContent = `Verify: ${recommendation.verification}`;
   const studentActions = recommendation.actions.filter((action) => /student/i.test(action));
   const facilitiesActions = recommendation.actions.filter((action) => /facilit/i.test(action));
   audienceGrid.innerHTML = `
@@ -309,28 +321,30 @@ function renderKioskAction(summary) {
   `;
 }
 
-async function renderKioskChart(summary, methodology) {
+async function renderDisplayChart(summary, methodology) {
   const selected = summary.buildings
     .filter((building) => building.co2.source_count > 0)
     .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0))[0];
-  if (!selected) return;
-
-  const history = await getHistory(selected.building.id, "24h");
+  const history = selected ? await getHistory(selected.building.id, "24h") : { series: [] };
   const data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
-  if (!data.length) return;
+  if (!data.length) {
+    renderTimeSeriesChart({ container: "#display-co2-chart", data: [], metric: { label: "CO2" } });
+    document.getElementById("display-chart-summary").textContent = "No CO2 history is available yet. Readings will appear as sensors report.";
+    return;
+  }
 
   const latest = data[data.length - 1];
   const peak = data.reduce((best, point) => (point.value > best.value ? point : best), data[0]);
 
   renderTimeSeriesChart({
-    container: "#kiosk-co2-chart",
+    container: "#display-co2-chart",
     data,
     metric: { label: `${selected.building.name} average CO2`, decimals: 0 },
     options: {
-      height: Math.max(420, Math.round(window.innerHeight * 0.56)),
-      margin: { top: 22, right: 36, bottom: 54, left: 138 },
+      fitContainer: true,
+      margin: { top: 30, right: 24, bottom: 38, left: 84 },
       unit: "ppm",
-      color: "#246b73",
+      color: "#09298b",
       includeZero: false,
       smoothingWindow: 5,
       strokeWidth: 4,
@@ -344,24 +358,39 @@ async function renderKioskChart(summary, methodology) {
   });
 
   const values = data.map((point) => point.value);
-  document.getElementById("kiosk-chart-summary").textContent =
+  document.getElementById("display-chart-summary").textContent =
     `${selected.building.name} ranged from ${formatNumber(Math.min(...values))} to ${formatNumber(Math.max(...values))} ppm in the last 24 hours.`;
 }
 
 function startSceneRotation(config) {
-  const scenes = Array.from(document.querySelectorAll(".kiosk-scene"));
-  const progress = document.getElementById("kiosk-progress-fill");
+  const scenes = Array.from(document.querySelectorAll(".display-scene"));
+  const progress = document.getElementById("display-progress-fill");
   let index = 0;
   let started = Date.now();
+
+  const setSceneVisibility = () => {
+    scenes.forEach((scene, sceneIndex) => {
+      scene.setAttribute("aria-hidden", String(sceneIndex !== index));
+      scene.inert = sceneIndex !== index;
+    });
+  };
+  setSceneVisibility();
 
   const show = (nextIndex) => {
     scenes[index].classList.remove("active");
     index = nextIndex % scenes.length;
     scenes[index].classList.add("active");
+    scenes[index].scrollTop = 0;
+    setSceneVisibility();
     started = Date.now();
   };
 
   setInterval(() => {
+    if (document.getElementById("display-pulse").dataset.state !== "ready") {
+      if (index !== 0) show(0);
+      progress.style.width = "0";
+      return;
+    }
     const elapsed = Date.now() - started;
     progress.style.width = `${Math.min(100, (elapsed / config.sceneMs) * 100)}%`;
     if (elapsed >= config.sceneMs) {
@@ -371,22 +400,23 @@ function startSceneRotation(config) {
   }, 250);
 }
 
-async function loadKioskData(config) {
+async function loadDisplayData(config) {
   const [summary, methodology] = await Promise.all([getCampusSummary(), getMethodology()]);
-  renderKioskSummary(summary);
+  renderDisplaySummary(summary);
   renderLocalFocus(summary, config);
-  renderKioskBuildings(summary);
+  renderDisplayBuildings(summary);
   renderCampusMap(summary);
   renderDataQuality(summary);
-  renderKioskInsight(summary);
-  renderKioskAction(summary);
-  await renderKioskChart(summary, methodology);
+  renderDisplayInsight(summary);
+  renderDisplayAction(summary);
+  await renderDisplayChart(summary, methodology);
+  document.getElementById("display-pulse").dataset.state = "ready";
 }
 
-async function initKioskPulse() {
-  const config = kioskConfig();
-  document.getElementById("kiosk-pulse").dataset.preset = config.presetName;
-  document.getElementById("kiosk-pulse").dataset.density = config.density;
+async function initDisplayPulse() {
+  const config = displayConfig();
+  document.getElementById("display-pulse").dataset.preset = config.presetName;
+  document.getElementById("display-pulse").dataset.density = config.density;
   updateClock();
   updateDashboardUrl();
   setInterval(updateClock, 15_000);
@@ -396,18 +426,22 @@ async function initKioskPulse() {
   try {
     status = await getSystemStatus();
     renderRuntimeStatus(status);
-    await loadKioskData(config);
+    updateDashboardUrl(status);
+    await loadDisplayData(config);
   } catch (error) {
-    renderKioskUnavailable(error, status);
+    renderDisplayUnavailable(error, status);
   }
 
-  setInterval(async () => {
+  const refresh = async () => {
     try {
       status = await getSystemStatus();
       renderRuntimeStatus(status);
-      await loadKioskData(config);
+      updateDashboardUrl(status);
+      await loadDisplayData(config);
     } catch (error) {
-      renderKioskUnavailable(error, status);
+      renderDisplayUnavailable(error, status);
     }
-  }, refreshIntervalMs(status));
+    setTimeout(refresh, refreshIntervalMs(status));
+  };
+  setTimeout(refresh, refreshIntervalMs(status));
 }

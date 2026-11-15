@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Campus dashboard — Campus Display{% endblock %}
+
+{% block body_class %}display-pulse-page{% endblock %}
+{% block html_class %}display-root{% endblock %}
+
+{% block head %}
+<script src="/static/vendor/d3/d3.min.js?v=7.9.0"></script>
+<link rel="stylesheet" href="/static/css/display-pulse.css?v=20261101-campus-colours">
+{% endblock %}
+
+{% block content %}
+<main id="display-pulse" class="display-pulse" data-state="loading" aria-live="polite">
+  <header class="display-topbar">
+    <div>
+      <span class="display-kicker">Indoor climate &amp; energy</span>
+      <strong>Campus overview</strong>
+    </div>
+    <div class="display-status">
+      <span id="display-source">Source --</span>
+      <span id="display-freshness">Checking data</span>
+      <span id="display-confidence">Coverage --</span>
+      <span id="display-clock">--:--</span>
+    </div>
+  </header>
+
+  <div class="display-progress" aria-hidden="true"><span id="display-progress-fill"></span></div>
+
+  <section class="display-scene active" data-scene="campus-now" aria-labelledby="scene-campus-title">
+    <div class="scene-copy">
+      <span class="scene-label">Latest readings</span>
+      <h1 id="scene-campus-title">Campus now</h1>
+      <p id="scene-campus-summary">Loading current campus data...</p>
+    </div>
+    <div class="display-metric-wall">
+      <article>
+        <span>Campus CO2</span>
+        <strong id="display-co2">--</strong>
+        <em id="display-co2-context">Waiting for data</em>
+      </article>
+      <article>
+        <span>Temperature</span>
+        <strong id="display-temp">--</strong>
+        <em id="display-temp-context">Waiting for data</em>
+      </article>
+      <article>
+        <span>Electricity</span>
+        <strong id="display-energy">--</strong>
+        <em>Estimated from available CT sensors</em>
+      </article>
+    </div>
+  </section>
+
+  <section class="display-scene" data-scene="local-focus" aria-labelledby="scene-local-title">
+    <div class="scene-copy">
+      <span class="scene-label">This display</span>
+      <h2 id="scene-local-title">Nearby building</h2>
+      <p id="display-local-summary">Loading local building status...</p>
+    </div>
+    <div id="display-local-card" class="display-local-card"></div>
+  </section>
+
+  <section class="display-scene" data-scene="air-today" aria-labelledby="scene-air-title">
+    <div class="scene-head">
+      <div>
+        <span class="scene-label">Air today</span>
+        <h2 id="scene-air-title">CO2 over 24 hours</h2>
+      </div>
+      <p id="display-chart-summary">Loading chart summary...</p>
+    </div>
+    <div id="display-co2-chart" class="display-chart" role="img" aria-labelledby="scene-air-title display-chart-summary"></div>
+  </section>
+
+  <section class="display-scene" data-scene="campus-map" aria-labelledby="scene-map-title">
+    <div class="scene-head">
+      <div>
+        <span class="scene-label">Where</span>
+      <h2 id="scene-map-title">Compare buildings</h2>
+      </div>
+      <p id="display-map-summary">Loading building comparison...</p>
+    </div>
+    <div id="display-campus-map" class="display-campus-map"></div>
+  </section>
+
+  <section class="display-scene" data-scene="buildings" aria-labelledby="scene-buildings-title">
+    <div class="scene-head">
+      <div>
+        <span class="scene-label">Buildings</span>
+        <h2 id="scene-buildings-title">Building snapshot</h2>
+      </div>
+      <p>Freshness and context are shown with every value.</p>
+    </div>
+    <div id="display-building-grid" class="display-building-grid"></div>
+  </section>
+
+  <section class="display-scene" data-scene="data-quality" aria-labelledby="scene-quality-title">
+    <div class="scene-copy wide">
+      <span class="scene-label">Trust the data</span>
+      <h2 id="scene-quality-title">Reading quality</h2>
+      <p id="display-quality-summary">Loading data quality...</p>
+      <div id="display-quality-list" class="display-quality-list"></div>
+    </div>
+  </section>
+
+  <section class="display-scene" data-scene="insight" aria-labelledby="scene-insight-title">
+    <div class="scene-copy wide">
+      <span class="scene-label">What's happening?</span>
+      <h2 id="scene-insight-title">Latest measured insight</h2>
+      <p id="display-insight">Loading insight...</p>
+    </div>
+  </section>
+
+  <section class="display-scene" data-scene="action" aria-labelledby="scene-action-title">
+    <div class="scene-copy wide">
+      <span class="scene-label">Possible improvement</span>
+      <h2 id="scene-action-title">Suggested next step</h2>
+      <p id="display-action">Loading recommendation...</p>
+      <p id="display-verify" class="display-verify"></p>
+      <div id="display-action-audiences" class="display-action-audiences"></div>
+    </div>
+  </section>
+
+  <section class="display-scene" data-scene="qr" aria-labelledby="scene-qr-title">
+    <div class="scene-copy">
+      <span class="scene-label">Explore</span>
+      <h2 id="scene-qr-title">Explore the readings</h2>
+      <p>Scan the code to compare buildings, view trends, and learn how readings are interpreted.</p>
+    </div>
+    <div class="display-qr-panel">
+      <a href="{{ dashboard_url|default('/overview') }}" aria-label="Open dashboard">
+        <img src="/qr/dashboard.png" alt="Scan to open the dashboard">
+      </a>
+      <strong>Scan to explore</strong>
+      <a id="display-dashboard-url" href="{{ dashboard_url|default('/overview') }}">{{ dashboard_url|default('/overview') }}</a>
+    </div>
+  </section>
+
+  <footer class="display-footer-strip">
+    <span id="display-updated">Latest reading unavailable</span>
+    <span class="display-qr-note"><img src="/qr/dashboard.png" alt="">Scan for readings and trends.</span>
+    <a href="/overview">Explore data</a>
+  </footer>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
+<script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
+<script src="/static/js/display-pulse.js?v=20261101-campus-colours"></script>
+<script>initDisplayPulse();</script>
+{% endblock %}

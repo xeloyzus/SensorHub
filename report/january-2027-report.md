@@ -1,4 +1,4 @@
-# NanitesLab — January 2027 report
+# Campus dashboard — January 2027 report
 
 Final project report template. Fill in once the data collection period
 (14 Sep – 31 Dec 2026) has completed.
@@ -9,8 +9,14 @@ Final project report template. Fill in once the data collection period
 
 ## 2. System overview
 
-- 10 AM103 air-quality sensors + 3 CT305 current clamps, 3 UG65 gateways,
-  VPS backend, public dashboard + kiosk displays.
+- Record the final installed fleet against `hardware/hardware.csv`: 12 AM103
+  units listed (active/spare count unresolved), 4 AM107 planned, 3 CT305,
+  and 3 UG65 gateways; distinguish planned equipment from working devices.
+- Dedicated Linux PC backend and three signage screens opening the public
+  dashboard URL directly using Samsung's built-in internet/URL feature in
+  KEH, EOJ, and ARK.
+- Record coverage across KEH, EOJ, ARK, and SiS, plus the final ChirpStack/
+  edge-node arrangement if deployed. The Mac Studio is outside Campus dashboard.
 
 ## 3. Findings
 
@@ -27,7 +33,7 @@ Final project report template. Fill in once the data collection period
 
 ## 4. Operational lessons
 
-- Hardware reliability, gateway placement, kiosk uptime, retention policy
+- Hardware reliability, gateway placement, signage uptime, retention policy
   behaviour (raw 90 days → hourly rollup).
 
 ## 5. Recommendations

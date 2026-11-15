@@ -3,10 +3,11 @@
 ``decode`` dispatches on the device type registered in the database.
 """
 
-from . import am103_decoder, ct305_decoder
+from . import am103_decoder, am107_decoder, ct305_decoder
 
 _DECODERS = {
     "am103": am103_decoder.decode,
+    "am107": am107_decoder.decode,
     "ct305": ct305_decoder.decode,
 }
 

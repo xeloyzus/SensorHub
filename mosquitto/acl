@@ -1,0 +1,8 @@
+# Gateways publish telemetry only; ingestion reads it but cannot publish.
+user naniteslab-gateway
+topic write application/+/device/+/event/up
+topic write application/+/device/+/rx
+
+user naniteslab-ingest
+topic read application/+/device/+/event/up
+topic read application/+/device/+/rx

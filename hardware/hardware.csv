@@ -1,0 +1,14 @@
+Item / Equipment,Supplier,Qty,Unit Price (NOK),Subtotal (NOK),Column 1,Deployment & Operating Notes
+Milesight AM103 (CO₂/Temp/Humidity),csmegastore,12,"2,377 kr","28,524 kr",FALSE,"Base Coverage: 10 active units distributed across KEH, EOJ, ARK, and SiS classrooms. 3 spares. Battery-powered."
+"GMKtec G10 Mini PC (Ryzen 5, 16GB)",24hshop,1,"5,499 kr","5,499 kr",FALSE,Edge Node: Runs local LoRaWAN Network Server (ChirpStack) & MQTT broker. Ensures offline data resilience and low-power edge computing.
+Milesight CT305 (3-phase current clamp),csmegastore,3,"2,259 kr","6,777 kr",FALSE,"Heavy Monitoring: 1 per major building (KEH, EOJ, ARK). Requires Driftsenheten panel access. Tracks baseline HVAC/lighting energy draw."
+Milesight UG65 (LoRaWAN gateway),Avxperten/ Csmegastore,3,"3,469 kr","10,407 kr",FALSE,"Network Coverage: Placed on KEH, EOJ, and ARK. LoRaWAN's long-range physics ensures overlapping coverage easily blankets the adjacent SiS facilities."
+SANDISK WD Black SN7100 SSD (1TB),Proshop,1,"2,190 kr","2,190 kr",FALSE,Server Reliability: Installed in the Mac Studio. Replaces microSD/standard SSDs to handle 24/7 continuous database write cycles without wear.
+"Samsung 55"" 4K BE65F-H Business TV",Komplett Dustin ,3,"5,624 kr","16,872 kr",FALSE,"Visual Dashboards: 1 per major building (KEH, EOJ, ARK). Commercial-grade for 24/7 operation in main auditoriums/lobbies."
+Veggefest (Wall mount),Maxgaming,3,999 kr,"2,997 kr",FALSE,Mounting: 1 per Samsung TV.
+Mac Studio (Server & Hosting),Proshop / Eple-thuset,1,"32,999 kr","32,999 kr",FALSE,Central Host: On-premises host for NanitesLab web app & database. Keeps data within UiS infrastructure. Apple Silicon ensures high performance-per-watt.
+Milesight AM107 (Adds PIR Occupancy & Light),csmegastore ,4,"3,171 kr","12,684 kr",FALSE,"Energy Upgrade: Placed in large auditoriums. PIR sensors enable ""Energy per Occupied Hour"" metrics and Demand-Controlled Ventilation (DCV)."
+"Uforutsette kostnader (Frakt, skruer, etc.)",-,0,"15,000 kr",0 kr,FALSE,"Contingency: Capped at 15,000 kr. Prices include MVA; this covers mounting rails, screws, cables, and minor local transport."
+Budget,"150,000 kr",,,"118,949 kr",FALSE,
+Balance,,,,"31,051 kr",FALSE,
+Items Purchased,,,,0 kr,FALSE,

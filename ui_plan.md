@@ -1,9 +1,9 @@
-# NanitesLab --- Student Frontend & Data Intelligence Implementation Plan
+# Campus dashboard --- Student Frontend & Data Intelligence Implementation Plan
 
 > **Purpose:** Implementation specification for an AI coding agent
-> redesigning the NanitesLab public frontend.
+> redesigning the Campus dashboard public frontend.
 >
-> **Primary goal:** Turn NanitesLab from a conventional IoT sensor
+> **Primary goal:** Turn Campus dashboard from a conventional IoT sensor
 > dashboard into an interactive **campus sustainability living lab** for
 > students: show what is happening, why it matters, how it is changing,
 > what can reasonably be done about it, and how confident the system is
@@ -19,19 +19,22 @@
 
 ## 1. Project context
 
-NanitesLab is a UiS living-lab sensor network for indoor climate and
+Campus dashboard is a UiS living-lab sensor network for indoor climate and
 electricity monitoring. The current repository describes:
 
 -   Milesight AM103 indoor-climate sensors.
+-   Milesight AM107 climate, PIR activity, light, TVOC, and pressure sensors.
 -   CT305 electricity/current monitoring.
 -   LoRaWAN devices communicating through a UG65 gateway.
 -   MQTT/Mosquitto ingestion.
 -   TimescaleDB storage.
 -   FastAPI backend.
 -   Jinja2/static JavaScript frontend.
--   Raspberry Pi / Chromium kiosk displays.
+-   Samsung signage screens opening the webpage through their built-in URL feature.
+-   Dedicated Linux PC hosting the website and database.
 -   Public mobile/dashboard routes.
--   Approximately 13 devices reporting around every 15 minutes.
+-   Planned fleet of 10 active AM103, 4 AM107, and 3 CT305 devices, subject to
+    the inventory count reconciliation and actual DevEUI/room registration.
 -   Raw readings retained for a limited period and hourly rollups
     retained long-term.
 -   Long-term operation intended to support year-over-year analysis
@@ -162,7 +165,7 @@ Use four main public sections:
 3.  **Explore**
 4.  **About the Lab**
 
-Kiosk mode is a separate presentation mode rather than another
+Display mode is a separate presentation mode rather than another
 navigation item.
 
 ------------------------------------------------------------------------
@@ -179,7 +182,7 @@ Give a visitor an understandable campus snapshot in under five seconds.
 
 Display:
 
--   "NanitesLab" / "UiS Campus Pulse"
+-   "Campus dashboard" / "Campus dashboard"
 -   current data status;
 -   latest reading time;
 -   data freshness indicator;
@@ -227,7 +230,7 @@ Clicking enters the building view.
 
 Automatically generated observations, for example:
 
--   "Library CO₂ reached today's highest measured value at 13:42."
+-   "EOJ CO₂ reached today's highest measured value at 13:42."
 -   "Current electricity demand is below the typical level for this
     weekday/hour."
 -   "Reading Room 2 has shown a sustained CO₂ rise for 45 minutes."
@@ -629,7 +632,7 @@ Campus/building aggregates must disclose if they exclude stale sensors.
 
 # 17. Derived analytics
 
-Prefer backend-calculated statistics so kiosk, mobile and desktop use
+Prefer backend-calculated statistics so display, mobile and desktop use
 identical definitions.
 
 ## CO₂
@@ -993,7 +996,7 @@ Date:
 2026-10-12
 
 Building:
-Library
+EOJ
 
 Rooms:
 Reading Room 1 / 2
@@ -1239,9 +1242,9 @@ Example:
 
 ------------------------------------------------------------------------
 
-# 34. Kiosk mode
+# 34. Display mode
 
-The kiosk is passive storytelling, not a desktop dashboard stretched to
+The display is passive storytelling, not a desktop dashboard stretched to
 a large screen.
 
 Auto-rotate approximately every 10--15 seconds between:
@@ -1387,7 +1390,7 @@ TimescaleDB
   ↓
 FastAPI
   ↓
-NanitesLab dashboard
+Campus dashboard dashboard
 ```
 
 Include:
@@ -1427,7 +1430,7 @@ provides that information.
 
 # 41. Performance
 
-D3 must remain smooth on kiosk hardware and phones.
+D3 must remain smooth on display hardware and phones.
 
 Requirements:
 
@@ -1474,7 +1477,7 @@ Test:
 -   partial sensor failure;
 -   tooltip/crosshair;
 -   keyboard interaction;
--   kiosk resolution;
+-   display resolution;
 -   mobile width;
 -   reduced motion.
 
@@ -1497,7 +1500,7 @@ Pay special attention to:
 -   DST transitions;
 -   daily comparisons;
 -   same-hour baselines;
--   kiosk timestamps;
+-   display timestamps;
 -   CSV exports.
 
 Do not compare 24-hour windows naïvely across DST boundaries.
@@ -1614,9 +1617,9 @@ Implement:
 -   recommendation feedback;
 -   facilities workflow.
 
-## Phase 8 --- Kiosk
+## Phase 8 --- Display
 
-Implement dedicated kiosk presentation using existing data/components
+Implement dedicated display presentation using existing data/components
 but a separate composition.
 
 ## Phase 9 --- Accessibility/performance hardening
@@ -1627,7 +1630,7 @@ Audit:
 -   keyboard behavior;
 -   chart summaries;
 -   load performance;
--   kiosk stability;
+-   display stability;
 -   caching;
 -   query cost.
 
@@ -1810,7 +1813,7 @@ When implementing this plan:
 17. Implement in phases; do not attempt a monolithic rewrite.
 18. After each phase, run the existing test suite plus new tests and fix
     regressions before proceeding.
-19. Keep kiosk performance in mind throughout implementation.
+19. Keep display performance in mind throughout implementation.
 20. Update project documentation to describe the implemented behavior
     and methodology, not obsolete UI mockups.
 
@@ -1822,7 +1825,7 @@ Start with a vertical slice rather than all features.
 
 Build:
 
-**Library / one building → current metrics → CO₂ D3 timeline → freshness
+**EOJ / one building → current metrics → CO₂ D3 timeline → freshness
 → statistics → one insight → one recommendation**
 
 Required pieces:
@@ -1844,7 +1847,7 @@ interventions.
 
 # 54. Final product concept
 
-NanitesLab should evolve through four levels:
+Campus dashboard should evolve through four levels:
 
 ``` text
 LEVEL 1 — MEASURE
@@ -1882,6 +1885,6 @@ It should be capable of saying:
 > determine whether CO₂ duration/peaks improve and whether electricity
 > demand changes."
 
-That turns NanitesLab from a sensor display into a genuine
+That turns Campus dashboard from a sensor display into a genuine
 **student-facing sustainability laboratory and evidence-to-action
 platform**.

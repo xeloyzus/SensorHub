@@ -16,40 +16,45 @@ import base64
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 import psycopg
 
-from decoders import decode
+if __package__:
+    from .decoders import decode
+else:
+    from decoders import decode
 
 log = logging.getLogger("ingest")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 MQTT_HOST = os.environ.get("MQTT_HOST", "mosquitto")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
-MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "#")
+MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "application/+/device/+/event/up")
 
 
 class Database:
     """A single persistent connection that reconnects transparently."""
 
     def __init__(self) -> None:
-        self._conn = psycopg.connect(DATABASE_URL, autocommit=True)
+        self._conn: psycopg.Connection | None = None
 
     @property
     def conn(self) -> psycopg.Connection:
-        if self._conn.closed:
+        if self._conn is None or self._conn.closed:
             self._conn = psycopg.connect(DATABASE_URL, autocommit=True)
         return self._conn
 
     def reset(self) -> None:
-        """Drop the connection and open a fresh one (called after a failure)."""
+        """Close the failed connection; reconnect lazily on the next lookup."""
         try:
-            self._conn.close()
+            if self._conn is not None:
+                self._conn.close()
         except psycopg.Error:
             pass
-        self._conn = psycopg.connect(DATABASE_URL, autocommit=True)
+        self._conn = None
 
 
 class DeviceRegistry:
@@ -81,30 +86,46 @@ def parse_message(payload: bytes) -> tuple[str, bytes, datetime]:
     Raises ``ValueError``/``KeyError`` on anything that is not a valid uplink.
     """
     data = json.loads(payload)
+    if not isinstance(data, dict):
+        raise ValueError("message must be a JSON object")
 
     raw = data.get("data")
-    if not raw:
-        raise ValueError("message has no 'data' field")
+    if not isinstance(raw, str) or not raw:
+        raise ValueError("message must have a nonempty base64 'data' string")
 
     # DevEUI lives in different places across ChirpStack v3 and v4.
-    device_info = data.get("deviceInfo") or {}
+    device_info = data.get("deviceInfo")
+    if device_info is None:
+        device_info = {}
+    if not isinstance(device_info, dict):
+        raise ValueError("deviceInfo must be an object")
     eui = device_info.get("devEui") or data.get("devEUI") or data.get("devEui")
-    if not eui:
-        raise ValueError("message has no devEUI")
+    if not isinstance(eui, str) or re.fullmatch(r"[0-9a-fA-F]{16}", eui) is None:
+        raise ValueError("devEUI must contain 16 hexadecimal characters")
 
     # Prefer the network server timestamp; fall back to 'now'.
     iso = data.get("time")
+    if iso is not None and (not isinstance(iso, str) or not iso):
+        raise ValueError("time must be an ISO timestamp")
     ts = (
         datetime.fromisoformat(iso.replace("Z", "+00:00"))
         if iso
         else datetime.now(timezone.utc)
     )
 
-    return str(eui).lower(), base64.b64decode(raw), ts
+    if ts.tzinfo is None:
+        raise ValueError("time must include a timezone")
+    ts = ts.astimezone(timezone.utc)
+    if (ts - datetime.now(timezone.utc)).total_seconds() > 300:
+        raise ValueError("time is more than five minutes in the future")
+    frame = base64.b64decode(raw, validate=True)
+    if not frame:
+        raise ValueError("decoded payload is empty")
+    return eui.lower(), frame, ts
 
 
 def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage) -> None:
-    """Decode and persist a single MQTT message. Never raises."""
+    """Decode and persist an uplink; skip malformed or unknown messages."""
     try:
         eui, frame, ts = parse_message(msg.payload)
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
@@ -133,12 +154,17 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
         log.debug("No telemetry decoded for %s on %s", eui, msg.topic)
         return
 
-    rows = [(ts, device_id, metric, value) for metric, value in metrics.items()]
+    rows = [(ts, device_id, metric, value, ts, device_id, metric) for metric, value in metrics.items()]
     try:
-        with db.conn.cursor() as cur:
+        with db.conn.transaction(), db.conn.cursor() as cur:
+            # Serialize writes for one device across ingest workers. Repeated
+            # uplinks must not inflate averages or historical coverage. Existing
+            # duplicates remain untouched, so old databases upgrade without loss.
+            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (20261101, device_id))
             cur.executemany(
                 "INSERT INTO readings (time, device_id, metric, value) "
-                "VALUES (%s, %s, %s, %s)",
+                "SELECT %s, %s, %s, %s WHERE NOT EXISTS ("
+                "SELECT 1 FROM readings WHERE time = %s AND device_id = %s AND metric = %s)",
                 rows,
             )
     except psycopg.Error:
@@ -151,6 +177,9 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties) -> None:
     """(Re)subscribe to the uplink topic on every (re)connect."""
+    if reason_code.is_failure:
+        log.error("MQTT connection rejected: %s", reason_code)
+        return
     client.subscribe(MQTT_TOPIC)
 
 
@@ -170,6 +199,11 @@ def main() -> None:
 
     # CallbackAPIVersion.VERSION2 is the modern paho-mqtt 2.x API.
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, userdata=(db, registry))
+    username = os.environ.get("MQTT_USERNAME")
+    password = os.environ.get("MQTT_PASSWORD")
+    if not username or not password:
+        raise RuntimeError("MQTT_USERNAME and MQTT_PASSWORD are required")
+    client.username_pw_set(username, password)
     client.on_connect = on_connect
     client.on_message = on_message
     # Reconnect with backoff if the broker is temporarily unreachable.
