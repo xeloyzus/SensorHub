@@ -1,7 +1,5 @@
 # Campus dashboard
 
-Indoor climate and electricity monitoring for UiS Green Funds (14 Sep – 31 Dec 2026).
-
 LoRaWAN sensors feed a self-hosted stack on a **dedicated Linux PC**. Three
 signage screens in KEH, EOJ, and ARK open the exposed dashboard URL directly
 using Samsung's built-in internet/URL feature. The Mac Studio is used for other
