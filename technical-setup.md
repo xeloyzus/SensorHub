@@ -96,7 +96,8 @@ sensorhub/
 ## 5. Linux server and public access
 
 Install Docker Engine and the Docker Compose plugin on the dedicated Linux
-PC. Run `bash run.sh` for first-time address/credential setup, and follow the
+PC. The launcher checks Docker, Compose, and daemon access before starting.
+Run `bash run.sh` for first-time address/credential setup, and follow the
 [`README.md`](README.md) quick start. The existing services are:
 
 | Compose service | Role |

@@ -97,15 +97,18 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    Point `DOMAIN` at its approved public endpoint and arrange routing/firewall
    access for ports 80/443 to Caddy, including certificate validation. A campus
    private IP alone does not make the URL reachable by public/mobile clients.
-   Then start the stack on the Linux PC (Docker Engine and Compose required):
+   Then start the stack on the Linux PC (Docker Engine and the Compose plugin
+   are required):
 
    ```bash
    bash run.sh
    ```
 
-   The launcher creates `.env` on first use if needed, validates Compose using
-   that explicit file, then starts the services. You can also provision a new
-   installation without the address prompt with
+   The launcher checks that Docker, the Compose plugin, and the Docker daemon
+   are available before creating `.env`, validates Compose using that explicit
+   file, then starts the services. On first use, Python 3 is also required for
+   environment generation. You can also provision a new installation without
+   the address prompt with
    `bash run.sh --domain http://SERVER_IP` (replace the IP).
 
    With a public hostname, Caddy obtains a TLS certificate automatically. The dashboard is served at
