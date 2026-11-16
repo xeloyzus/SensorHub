@@ -17,7 +17,7 @@
 #     compatible major/minor line so they keep receiving non-breaking security
 #     fixes. Bump everything deliberately once a year (see README).
 
-name: naniteslab
+name: sensorhub
 
 services:
   mosquitto:
@@ -40,13 +40,13 @@ services:
     image: timescale/timescaledb:2.17.2-pg16  # pinned — a future 3.x would be breaking
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-naniteslab}
-      POSTGRES_USER: ${POSTGRES_USER:-naniteslab}
+      POSTGRES_DB: ${POSTGRES_DB:-sensorhub}
+      POSTGRES_USER: ${POSTGRES_USER:-sensorhub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - timescale-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-naniteslab} -d ${POSTGRES_DB:-naniteslab}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sensorhub} -d ${POSTGRES_DB:-sensorhub}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -60,7 +60,7 @@ services:
       timescaledb:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
     command: ["python", "-m", "app.db.migrate"]
 
   ingest:
@@ -74,11 +74,11 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_TOPIC: ${MQTT_TOPIC:-application/+/device/+/event/up}
-      MQTT_USERNAME: naniteslab-ingest
+      MQTT_USERNAME: sensorhub-ingest
       MQTT_PASSWORD: ${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD in .env}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
@@ -93,7 +93,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-naniteslab}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-naniteslab}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
       DISPLAY_REFRESH_SECONDS: ${DISPLAY_REFRESH_SECONDS:-60}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

@@ -1,1 +1,1 @@
-"""NanitesLab ingest service (MQTT -> decode -> TimescaleDB)."""
+"""SensorHub ingest service (MQTT -> decode -> TimescaleDB)."""

@@ -56,10 +56,10 @@ def test_reset_does_not_attempt_immediate_database_reconnection(monkeypatch):
 def test_ingestion_authenticates_before_connecting(monkeypatch):
     client = Mock()
     monkeypatch.setattr("ingest.main.mqtt.Client", Mock(return_value=client))
-    monkeypatch.setenv("MQTT_USERNAME", "naniteslab-ingest")
+    monkeypatch.setenv("MQTT_USERNAME", "sensorhub-ingest")
     monkeypatch.setenv("MQTT_PASSWORD", "test-only-password")
     main()
-    client.username_pw_set.assert_called_once_with("naniteslab-ingest", "test-only-password")
+    client.username_pw_set.assert_called_once_with("sensorhub-ingest", "test-only-password")
     assert client.on_message is not None
     client.connect.assert_called_once()
 

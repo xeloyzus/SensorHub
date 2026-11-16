@@ -17,7 +17,7 @@ def main():
             env[key] = value
     env["MQTT_PORT"] = "0"
     env["INTEGRATION_API_PORT"] = "0"
-    project = "naniteslab-integration-" + uuid.uuid4().hex[:12]
+    project = "sensorhub-integration-" + uuid.uuid4().hex[:12]
     compose = [
         "docker", "compose", "--progress", "plain", "-p", project,
         "--env-file", "tests/integration.env",

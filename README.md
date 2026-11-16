@@ -37,7 +37,7 @@ The active building registry covers KEH, EOJ, ARK, and SiS.
 ## Repository layout
 
 ```
-naniteslab/
+sensorhub/
 ├── docker-compose.yml      # the whole stack
 ├── Caddyfile               # reverse proxy + automatic HTTPS
 ├── .env.example            # first-run configuration template
@@ -91,7 +91,7 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
 2. **Configure gateway access** over an encrypted VPN or tunnel. MQTT is bound
    to `127.0.0.1` by default; use `MQTT_BIND_ADDRESS` only for a private VPN
    interface. Port 1883 does not provide TLS and must not be exposed on the
-   public internet. Configure gateways with username `naniteslab-gateway`
+   public internet. Configure gateways with username `sensorhub-gateway`
    and `MQTT_GATEWAY_PASSWORD`; ingestion uses its own read-only account.
    See [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md).
 
@@ -282,7 +282,7 @@ Do these things, on a schedule, and it will keep running:
    is more than enough. Add a cron that runs:
 
    ```bash
-   docker compose exec -T timescaledb pg_dump -U naniteslab naniteslab | gzip > backups/naniteslab-$(date +%F).sql.gz
+   docker compose exec -T timescaledb pg_dump -U sensorhub sensorhub | gzip > backups/sensorhub-$(date +%F).sql.gz
    ```
 
    …and copy the file off-site (e.g. `rclone` to an object store). Keep the

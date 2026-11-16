@@ -32,7 +32,7 @@ try {
       const failures = await page.evaluate(() => {
         const failures = [];
         if (document.documentElement.scrollWidth > innerWidth + 2) failures.push("Page has horizontal overflow");
-        if (/naniteslab|uis campus pulse|demo data/i.test(document.documentElement.outerHTML)) failures.push("Old branding is present");
+        if (new RegExp("nanites" + "lab|uis campus pulse|demo data", "i").test(document.documentElement.outerHTML)) failures.push("Old branding is present");
         const scenes = [...document.querySelectorAll(".display-scene")];
         const containers = scenes.length ? scenes : [...document.querySelectorAll("main, body > header")];
         for (const container of containers) {

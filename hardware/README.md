@@ -6,7 +6,7 @@ from that file, not independently verified supplier specifications.
 
 ## Confirmed deployment decisions
 
-- NanitesLab runs on a dedicated PC with Linux.
+- SensorHub runs on a dedicated PC with Linux.
 - Three Samsung signage screens use their built-in internet/URL feature to
   open `https://<DOMAIN>/` directly using their integrated browser.
 - The Mac Studio is used for other work and is excluded from this deployment.
@@ -24,7 +24,7 @@ from that file, not independently verified supplier specifications.
 | SANDISK WD Black SN7100 SSD (1TB) | 1 | 2,190 | 2,190 | CSV assigns it to the Mac Studio; project role/compatibility unresolved |
 | Samsung business signage TV (CSV: `55" 4K BE65F-H`) | 3 | 5,624 | 16,872 | One display per major building; confirm exact model/size and URL player |
 | Wall mount | 3 | 999 | 2,997 | One per display |
-| Mac Studio | 1 | 32,999 | 32,999 | Outside NanitesLab per user clarification |
+| Mac Studio | 1 | 32,999 | 32,999 | Outside SensorHub per user clarification |
 | Milesight AM107 | 4 | 3,171 | 12,684 | Large auditoriums; telemetry and climate analytics supported |
 | Contingency / miscellaneous | 0 | 15,000 | 0 | Described as a cap; currently contributes zero to the total |
 
@@ -46,7 +46,7 @@ from that file, not independently verified supplier specifications.
 2. **Hosting:** the user's Linux PC decision supersedes the Mac Studio hosting
    note. Confirm whether the GMKtec is that PC or a separate edge machine.
 3. **SSD:** its source note still targets the Mac Studio. Confirm whether it
-   belongs in NanitesLab and check suitability for the selected Linux PC.
+   belongs in SensorHub and check suitability for the selected Linux PC.
 4. **Network server:** the repository currently uses UG65 embedded network
    servers and a Mosquitto broker on the application host. ChirpStack and a
    separate edge broker are not deployed by the current Compose configuration;

@@ -15,8 +15,8 @@ mkdir -p /mosquitto/data /mosquitto/log
 auth_dir=$(mktemp -d /mosquitto/data/auth.XXXXXX)
 trap 'rm -f "$auth_dir/passwd" "$auth_dir/acl"; rmdir "$auth_dir"' EXIT
 cp /mosquitto/config/acl "$auth_dir/acl"
-mosquitto_passwd -b -c "$auth_dir/passwd" naniteslab-gateway "$MQTT_GATEWAY_PASSWORD"
-mosquitto_passwd -b "$auth_dir/passwd" naniteslab-ingest "$MQTT_INGEST_PASSWORD"
+mosquitto_passwd -b -c "$auth_dir/passwd" sensorhub-gateway "$MQTT_GATEWAY_PASSWORD"
+mosquitto_passwd -b "$auth_dir/passwd" sensorhub-ingest "$MQTT_INGEST_PASSWORD"
 chown mosquitto:mosquitto /mosquitto/data /mosquitto/log "$auth_dir/passwd" "$auth_dir/acl"
 chmod 0600 "$auth_dir/passwd" "$auth_dir/acl"
 mv -f "$auth_dir/passwd" /mosquitto/data/passwd

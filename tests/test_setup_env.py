@@ -14,7 +14,7 @@ def test_generated_environment_has_distinct_secrets_and_matching_database_url(tm
     assert values['DOMAIN'] == 'http://192.0.2.10'
     assert len({values[key] for key in SECRET_KEYS}) == 4
     assert all(re.fullmatch('[0-9a-f]{64}', values[key]) for key in SECRET_KEYS)
-    assert values['DATABASE_URL'] == f"postgresql://naniteslab:{values['POSTGRES_PASSWORD']}@timescaledb:5432/naniteslab"
+    assert values['DATABASE_URL'] == f"postgresql://sensorhub:{values['POSTGRES_PASSWORD']}@timescaledb:5432/sensorhub"
     assert 'DEMO_MODE' not in values
     assert b'\r' not in target.read_bytes()
 

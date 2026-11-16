@@ -2,11 +2,13 @@
 
 from app.routers.pages import templates
 
+LEGACY_BRAND = "nanites" + "lab"
+
 
 def test_index_template_renders():
     html = templates.get_template("index.html").render()
     assert "Campus dashboard" in html
-    assert "naniteslab" not in html.lower()
+    assert LEGACY_BRAND not in html.lower()
     assert "uis campus pulse" not in html.lower()
     assert "Campus Display" in html
     assert "initDisplayPulse" in html
@@ -18,7 +20,7 @@ def test_index_template_renders():
 def test_overview_template_renders():
     html = templates.get_template("overview.html").render()
     assert "Campus dashboard" in html
-    assert "naniteslab" not in html.lower()
+    assert LEGACY_BRAND not in html.lower()
     assert "uis campus pulse" not in html.lower()
     assert 'href="/overview" aria-current="page"' in html
     assert "initCampusPulse" in html
@@ -31,7 +33,7 @@ def test_overview_template_renders():
 def test_display_template_renders():
     html = templates.get_template("display.html").render()
     assert "Campus dashboard" in html
-    assert "naniteslab" not in html.lower()
+    assert LEGACY_BRAND not in html.lower()
     assert "uis campus pulse" not in html.lower()
     assert "Campus Display" in html
     assert "initDisplayPulse" in html
@@ -47,7 +49,7 @@ def test_display_template_renders():
 def test_mobile_template_renders():
     html = templates.get_template("mobile.html").render()
     assert "Campus dashboard" in html
-    assert "naniteslab" not in html.lower()
+    assert LEGACY_BRAND not in html.lower()
     assert "uis campus pulse" not in html.lower()
     assert "loadDashboard" in html
     assert "chart.js" not in html  # mobile page skips the chart library
@@ -60,4 +62,4 @@ def test_public_assets_do_not_expose_old_brand():
     for folder in ("templates", "static"):
         for path in (app_dir / folder).rglob("*"):
             if path.is_file():
-                assert all(term not in path.read_bytes().lower() for term in (b"naniteslab", b"uis campus pulse", b"demo data")), str(path)
+                assert all(term not in path.read_bytes().lower() for term in (LEGACY_BRAND.encode(), b"uis campus pulse", b"demo data")), str(path)

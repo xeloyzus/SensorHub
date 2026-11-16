@@ -1,7 +1,7 @@
 # UG65 gateway configuration
 
 The implemented path uses each UG65's embedded LoRaWAN network server to
-forward uplinks over MQTT to the NanitesLab Mosquitto broker on the dedicated
+forward uplinks over MQTT to the SensorHub Mosquitto broker on the dedicated
 Linux PC. The updated inventory proposes ChirpStack/MQTT on a GMKtec node;
 ChirpStack is not deployed by the current Compose file. Confirm the server/edge
 layout and configure the gateways for the selected network server before
@@ -16,7 +16,7 @@ On each gateway (Network Server → MQTT):
 | Broker address     | the Linux server's private VPN address or local encrypted-tunnel endpoint |
 | Broker port        | `1883`                            |
 | Protocol           | MQTT (TCP), carried over an encrypted VPN/tunnel |
-| Username           | `naniteslab-gateway`              |
+| Username           | `sensorhub-gateway`              |
 | Password           | the `MQTT_GATEWAY_PASSWORD` configured on the Linux server |
 | Topic prefix       | `application/1/device/` (or as configured) |
 
@@ -28,7 +28,7 @@ Authentication does not encrypt passwords or sensor traffic.
 Ingest defaults to `application/+/device/+/event/up` (ChirpStack v4). For v3,
 set `MQTT_TOPIC=application/+/device/+/rx`. The broker ACL permits both layouts.
 If a gateway uses a different topic, update both `MQTT_TOPIC` and
-`mosquitto/acl` before deploying. Ingest uses username `naniteslab-ingest`
+`mosquitto/acl` before deploying. Ingest uses username `sensorhub-ingest`
 and a separate password, and has no permission to publish gateway readings.
 
 For an existing deployment, add distinct random `MQTT_GATEWAY_PASSWORD` and

@@ -108,7 +108,7 @@ def verify_existing_database_upgrade(db):
 
 def run():
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as db:
-        if db.execute("SELECT current_database()").fetchone()[0] != "naniteslab_integration":
+        if db.execute("SELECT current_database()").fetchone()[0] != "sensorhub_integration":
             raise RuntimeError("Refusing to write to a non-test database")
         assert db.execute("SELECT extversion FROM pg_extension WHERE extname='timescaledb'").fetchone()
         assert db.execute("SELECT to_regclass('readings_hourly')").fetchone()[0]
@@ -141,13 +141,13 @@ def run():
 
         with client(rejected=True):
             pass
-        with client("naniteslab-gateway", "wrong-password", rejected=True):
+        with client("sensorhub-gateway", "wrong-password", rejected=True):
             pass
         print("PASS: anonymous and incorrect credentials are rejected", flush=True)
 
-        with client("naniteslab-ingest", READER_PASSWORD) as reader:
+        with client("sensorhub-ingest", READER_PASSWORD) as reader:
             publish(reader, TOPIC, "{}", denied=True)
-            with client("naniteslab-gateway", GATEWAY_PASSWORD) as gateway:
+            with client("sensorhub-gateway", GATEWAY_PASSWORD) as gateway:
                 reader_ready, gateway_ready = threading.Event(), threading.Event()
                 reader_message, gateway_message = threading.Event(), threading.Event()
                 reader.on_subscribe = lambda *_args: reader_ready.set()
@@ -160,7 +160,7 @@ def run():
                 publish(gateway, TOPIC, '{"integration_marker":true}')
                 assert reader_message.wait(5), "Reader account cannot receive authorized telemetry"
                 assert not gateway_message.wait(0.5), "Write-only gateway received sensor traffic"
-        with client("naniteslab-gateway", GATEWAY_PASSWORD) as gateway:
+        with client("sensorhub-gateway", GATEWAY_PASSWORD) as gateway:
             publish(gateway, "unrelated/telemetry", "{}", denied=True)
             payload = json.dumps({"devEUI": EUI, "data": base64.b64encode(bytes.fromhex("ff01010175640367d200046850077d4c04")).decode(), "time": datetime.now(timezone.utc).isoformat()})
             def initial_uplink():
@@ -184,7 +184,7 @@ def run():
         print("PASS: repeated uplinks do not duplicate readings", flush=True)
         print("PASS: role ACLs, metadata decoding, and malformed-message recovery", flush=True)
 
-        with client('naniteslab-gateway', GATEWAY_PASSWORD) as gateway:
+        with client('sensorhub-gateway', GATEWAY_PASSWORD) as gateway:
             payload = json.dumps({'deviceInfo': {'devEui': AM107_EUI}, 'data': base64.b64encode(bytes.fromhex('0175640367dc00046850056a050006655e0190013200077d4c04087d780009739427')).decode(), 'time': datetime.now(timezone.utc).isoformat()})
             publish(gateway, f'application/1/device/{AM107_EUI}/event/up', payload)
             eventually(lambda: db.execute('SELECT count(DISTINCT metric) FROM readings WHERE device_id=%s', (ids[AM107_EUI],)).fetchone()[0] == 10, 'AM107 did not store all ten metrics')

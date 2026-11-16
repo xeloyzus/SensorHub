@@ -9,7 +9,7 @@ import os
 import pytest
 
 os.environ.setdefault(
-    "DATABASE_URL", "postgresql://user:pass@localhost:5432/naniteslab"
+    "DATABASE_URL", "postgresql://user:pass@localhost:5432/sensorhub"
 )
 
 

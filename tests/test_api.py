@@ -49,7 +49,7 @@ def test_runtime_status_contract(monkeypatch):
     from app.core.config import settings
     from app.routers import system
 
-    monkeypatch.setattr(settings, "database_url", "postgresql://user:pass@db:5432/naniteslab")
+    monkeypatch.setattr(settings, "database_url", "postgresql://user:pass@db:5432/sensorhub")
     monkeypatch.setattr(settings, "display_refresh_seconds", 45)
 
     from starlette.requests import Request

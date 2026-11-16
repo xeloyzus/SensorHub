@@ -72,7 +72,7 @@ distribution-panel access.
 ## 4. Repository structure
 
 ```text
-naniteslab/
+sensorhub/
 ├── docker-compose.yml      # six running services + one migration job
 ├── Caddyfile               # HTTPS reverse proxy to FastAPI
 ├── .env.example            # runtime configuration template
