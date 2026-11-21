@@ -129,6 +129,12 @@ def create_api_token(env_path: Path) -> str:
     raise RuntimeError("Could not create the ChirpStack bootstrap API key after 60 seconds: " + last_error)
 
 
+class ChirpStackHTTPError(RuntimeError):
+    def __init__(self, method: str, path: str, status: int, detail: str):
+        super().__init__(f"ChirpStack API {method} {path} returned HTTP {status}: {detail}")
+        self.status = status
+
+
 class ChirpStackAPI:
     def __init__(self, port: str, token: str):
         self.base = f"http://127.0.0.1:{port}/api"
@@ -150,7 +156,7 @@ class ChirpStackAPI:
             if allow_missing and exc.code == 404:
                 return {}
             detail = exc.read().decode("utf-8", "replace")[:500]
-            raise RuntimeError(f"ChirpStack API {method} {path} returned HTTP {exc.code}: {detail}") from exc
+            raise ChirpStackHTTPError(method, path, exc.code, detail) from exc
         except (URLError, TimeoutError) as exc:
             raise RuntimeError(f"ChirpStack REST API is not ready at {self.base}: {exc}") from exc
 
@@ -160,6 +166,12 @@ class ChirpStackAPI:
             try:
                 self.request("GET", "/tenants?limit=1")
                 return
+            except ChirpStackHTTPError as exc:
+                # Authentication errors cannot become healthy by waiting.
+                if exc.status in {401, 403}:
+                    raise
+                last_error = exc
+                time.sleep(2)
             except RuntimeError as exc:
                 last_error = exc
                 time.sleep(2)
@@ -286,7 +298,18 @@ def main() -> int:
         token = create_api_token(env_path)
         _, env = read_env(env_path)
         api = ChirpStackAPI(env.get("CHIRPSTACK_REST_API_PORT", "18090"), token)
-        api.wait_ready()
+        try:
+            api.wait_ready()
+        except ChirpStackHTTPError as exc:
+            if exc.status not in {401, 403}:
+                raise
+            # A token copied from an older ChirpStack database may no longer
+            # exist. Create a fresh global key and retry once automatically.
+            print("The saved ChirpStack API token was rejected; generating a fresh bootstrap token.", file=sys.stderr)
+            set_env_value(env_path, "CHIRPSTACK_BOOTSTRAP_API_TOKEN", "")
+            token = create_api_token(env_path)
+            api = ChirpStackAPI(env.get("CHIRPSTACK_REST_API_PORT", "18090"), token)
+            api.wait_ready()
         provision(api, app_key, join_eui)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         print(f"ChirpStack setup failed: {exc}", file=sys.stderr)
