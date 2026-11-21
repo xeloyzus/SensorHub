@@ -226,9 +226,19 @@ def provision(api: ChirpStackAPI, app_key: str, join_eui: str) -> None:
         raise RuntimeError("ChirpStack did not return an application ID.")
 
     for gateway_id, name in GATEWAYS:
-        gateway = {"gatewayId": gateway_id, "tenantId": tenant_id, "name": name, "description": name}
         existing_gateway = api.request("GET", f"/gateways/{gateway_id}", allow_missing=True)
-        if existing_gateway.get("gateway"):
+        existing_gateway_data = existing_gateway.get("gateway", {})
+        # ChirpStack validates this field as strictly positive. Preserve an
+        # existing positive priority; older/default records may report zero.
+        downlink_priority = max(1, int(existing_gateway_data.get("downlinkPriority") or 1))
+        gateway = {
+            "gatewayId": gateway_id,
+            "tenantId": tenant_id,
+            "name": name,
+            "description": name,
+            "downlinkPriority": downlink_priority,
+        }
+        if existing_gateway_data:
             # The gateway ID is supplied by the URL path on updates.
             update = {key: value for key, value in gateway.items() if key != "gatewayId"}
             api.request("PUT", f"/gateways/{gateway_id}", {"gateway": update})
