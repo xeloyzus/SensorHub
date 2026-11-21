@@ -13,6 +13,11 @@ RANGES = {
     "30d": "6 hours",
 }
 
+# Lookback window per preset, in hours. Passing a plain number (instead of the
+# raw preset string cast to an interval) keeps Postgres's forgiving interval
+# syntax out of the query path entirely.
+RANGE_HOURS = {"1h": 1, "24h": 24, "48h": 48, "7d": 168, "30d": 720}
+
 
 async def get_history(
     db: AsyncConnection, building_id: int, range_: str
@@ -44,14 +49,14 @@ async def get_history(
             FROM readings r
             JOIN devices d ON d.id = r.device_id
             WHERE d.building_id = %s
-              AND r.time > now() - %s::interval
+              AND r.time > now() - (%s || ' hours')::interval
               AND r.time <= now()
               AND r.value > '-Infinity'::double precision
               AND r.value < 'Infinity'::double precision
             GROUP BY d.id, d.label, d.type, r.metric, t
             ORDER BY d.id, r.metric, t
             """,
-            (bucket, building_id, range_),
+            (bucket, building_id, RANGE_HOURS[range_]),
         )
         rows = await cur.fetchall()
 

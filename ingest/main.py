@@ -17,6 +17,8 @@ import json
 import logging
 import os
 import re
+import time
+from collections import deque
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
@@ -56,25 +58,62 @@ class Database:
             pass
         self._conn = None
 
+    def execute_in_transaction(self, statement_factory) -> None:
+        """Run ``statement_factory(conn)`` inside one transaction.
+
+        Retries a bounded number of times when the connection fails mid-write
+        (e.g. a transient database restart), so a brief outage does not
+        silently drop uplinks that MQTT has already acknowledged.
+        """
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                with self.conn.transaction():
+                    statement_factory(self.conn)
+                return
+            except psycopg.Error:
+                self.reset()
+                if attempts >= 3:
+                    raise
+                time.sleep(min(2 ** (attempts - 1), 5))
+
+
+# Registry entries are re-read from the database after this many seconds, so
+# device edits (retirement, relabeling, re-homing) propagate without a restart.
+REGISTRY_TTL_SECONDS = float(os.environ.get("REGISTRY_TTL_SECONDS", "300"))
+
 
 class DeviceRegistry:
-    """In-memory cache of DevEUI -> (device_id, device_type)."""
+    """In-memory cache of DevEUI -> (device_id, device_type) with a TTL.
 
-    def __init__(self, db: Database) -> None:
+    Entries expire so registry changes made through ChirpStack provisioning or
+    SQL migrations take effect while ingest keeps running. Unregistered
+    devices are *not* cached: a device registered after startup is picked up
+    by its very next uplink.
+    """
+
+    def __init__(self, db: Database, ttl: float = REGISTRY_TTL_SECONDS) -> None:
         self._db = db
-        self._cache: dict[str, tuple[int, str]] = {}
+        self._ttl = ttl
+        self._cache: dict[str, tuple[float, tuple[int, str]]] = {}
 
     def get(self, eui: str) -> tuple[int, str] | None:
         """Return (device_id, type) for ``eui``, or None if unregistered."""
-        if eui in self._cache:
-            return self._cache[eui]
+        now = time.monotonic()
+        entry = self._cache.get(eui)
+        if entry is not None and now - entry[0] < self._ttl:
+            return entry[1]
         row = self._db.conn.execute(
             "SELECT id, type FROM devices WHERE eui = %s", (eui,)
         ).fetchone()
         if row is None:
+            # Do not cache misses — registration must take effect immediately.
+            self._cache.pop(eui, None)
             return None
-        self._cache[eui] = (row[0], row[1])
-        return self._cache[eui]
+        device = (row[0], row[1])
+        self._cache[eui] = (now, device)
+        return device
 
     def clear(self) -> None:
         self._cache.clear()
@@ -124,7 +163,61 @@ def parse_message(payload: bytes) -> tuple[str, bytes, datetime]:
     return eui.lower(), frame, ts
 
 
-def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage) -> None:
+class WriteBuffer:
+    """Bounded FIFO of decoded uplinks waiting to be persisted.
+
+    When the database is unreachable after the write path's own retries, the
+    message goes here instead of being dropped. ``flush`` replays buffered
+    rows in arrival order; if the buffer overflows, the oldest rows are lost
+    (and logged) so ingest keeps consuming fresh telemetry.
+    """
+
+    def __init__(self, maxlen: int = 1000) -> None:
+        self._rows: deque[tuple] = deque(maxlen=maxlen)
+        self.dropped = 0
+
+    def __len__(self) -> int:
+        return len(self._rows)
+
+    def add(self, rows: list[tuple]) -> None:
+        overflow = len(self._rows) + len(rows) - self._rows.maxlen
+        if overflow > 0:
+            for _ in range(overflow):
+                self._rows.popleft()
+            self.dropped += overflow
+            log.error("Write buffer full; discarded %d oldest reading rows", overflow)
+        self._rows.extend(rows)
+
+    def flush(self, db: Database) -> bool:
+        """Try to persist all buffered rows. Returns True when the buffer is empty."""
+        while self._rows:
+            batch = list(self._rows)
+            try:
+                db.execute_in_transaction(_insert_rows(batch))
+            except psycopg.Error:
+                log.warning("Still unable to flush %d buffered rows", len(batch))
+                return False
+            # Only remove what we actually wrote (add() may have extended it).
+            written = min(len(batch), len(self._rows))
+            for _ in range(written):
+                self._rows.popleft()
+        return True
+
+
+def _insert_rows(rows: list[tuple]):
+    def statement(conn):
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO readings (time, device_id, metric, value) "
+                "SELECT %s, %s, %s, %s WHERE NOT EXISTS ("
+                "SELECT 1 FROM readings WHERE time = %s AND device_id = %s AND metric = %s)",
+                rows,
+            )
+    return statement
+
+
+def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage,
+                   buffer: WriteBuffer | None = None) -> None:
     """Decode and persist an uplink; skip malformed or unknown messages."""
     try:
         eui, frame, ts = parse_message(msg.payload)
@@ -155,37 +248,61 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
         return
 
     rows = [(ts, device_id, metric, value, ts, device_id, metric) for metric, value in metrics.items()]
-    try:
-        with db.conn.transaction(), db.conn.cursor() as cur:
+
+    def write(conn):
+        with conn.cursor() as cur:
             # Serialize writes for one device across ingest workers. Repeated
             # uplinks must not inflate averages or historical coverage. Existing
             # duplicates remain untouched, so old databases upgrade without loss.
             cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (20261101, device_id))
-            cur.executemany(
-                "INSERT INTO readings (time, device_id, metric, value) "
-                "SELECT %s, %s, %s, %s WHERE NOT EXISTS ("
-                "SELECT 1 FROM readings WHERE time = %s AND device_id = %s AND metric = %s)",
-                rows,
-            )
+            _insert_rows(rows)(conn)
+
+    try:
+        db.execute_in_transaction(write)
     except psycopg.Error:
-        log.exception("Insert failed for device %s; reconnecting", device_id)
-        db.reset()
+        log.exception("Insert failed for device %s after retries", device_id)
+        if buffer is not None:
+            buffer.add(rows)
+            log.warning("Buffered %d rows for device %s (%d pending)",
+                        len(rows), device_id, len(buffer))
         return
+
+    if buffer is not None and len(buffer):
+        # The database answered again; keep buffered history ordered ahead of
+        # any newer uplink that arrives next.
+        try:
+            buffer.flush(db)
+        except psycopg.Error:
+            pass
 
     log.info("%s (%s): %s", eui, device_type, metrics)
 
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties) -> None:
-    """(Re)subscribe to the uplink topic on every (re)connect."""
+    """(Re)subscribe to the uplink topic and flush any buffered rows."""
     if reason_code.is_failure:
         log.error("MQTT connection rejected: %s", reason_code)
         return
     client.subscribe(MQTT_TOPIC)
+    db, registry, buffer = userdata
+    if len(buffer):
+        log.info("Broker reachable; flushing %d buffered rows", len(buffer))
+        try:
+            buffer.flush(db)
+        except psycopg.Error:
+            log.exception("Buffered rows remain unpersisted; retrying on next message")
 
 
 def on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:
-    db, registry = userdata
-    handle_message(db, registry, msg)
+    db, registry, buffer = userdata
+    if len(buffer):
+        # Opportunistically replay buffered rows before ingesting new ones so
+        # history stays in order once the database recovers.
+        try:
+            buffer.flush(db)
+        except psycopg.Error:
+            pass
+    handle_message(db, registry, msg, buffer)
 
 
 def main() -> None:
@@ -196,9 +313,10 @@ def main() -> None:
 
     db = Database()
     registry = DeviceRegistry(db)
+    buffer = WriteBuffer(maxlen=int(os.environ.get("WRITE_BUFFER_ROWS", "1000")))
 
     # CallbackAPIVersion.VERSION2 is the modern paho-mqtt 2.x API.
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, userdata=(db, registry))
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, userdata=(db, registry, buffer))
     username = os.environ.get("MQTT_USERNAME")
     password = os.environ.get("MQTT_PASSWORD")
     if not username or not password:

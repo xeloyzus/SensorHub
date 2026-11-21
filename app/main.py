@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .db.database import pool
+from .db.database import create_pool, pool
 from .core.config import settings
 from .internal import health
 from .routers import analytics, buildings, history, pages, qr, sensors, system
@@ -22,9 +22,12 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global pool
     settings.require_database_url()
     if pool is None:
-        raise RuntimeError("Database pool is not configured.")
+        # The URL appeared after import (e.g. injected late by tooling);
+        # build the pool now instead of refusing to start.
+        pool = create_pool()
     try:
         await pool.open(wait=True)
         yield
