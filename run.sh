@@ -53,10 +53,10 @@ elif [ "$#" -gt 0 ]; then
   exit 1
 fi
 
-# Add the Semtech Gateway Bridge credential when upgrading an older .env.
-# The helper preserves every existing setting and generates only this missing
-# secret, so database passwords and existing service credentials stay intact.
-if ! grep -q '^MQTT_BRIDGE_PASSWORD=[^[:space:]]' .env; then
+# Add newly introduced runtime-only credentials when upgrading an older .env.
+# The helper preserves existing settings and creates only missing secrets.
+if ! grep -q '^MQTT_BRIDGE_PASSWORD=[^[:space:]]' .env || \
+   ! grep -q '^GRAFANA_DB_PASSWORD=[^[:space:]]' .env; then
   python3 scripts/ensure_env.py .env
 fi
 

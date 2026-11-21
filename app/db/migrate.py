@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import psycopg
+from psycopg import sql
 
 log = logging.getLogger(__name__)
 MIGRATIONS = Path(__file__).with_name("migrations")
@@ -41,6 +42,27 @@ def migrate(db: psycopg.Connection, directory: Path = MIGRATIONS) -> None:
             log.info("Applied %s", path.name)
     finally:
         db.execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK,))
+
+    # Grafana must never connect as the application/database owner. Give it a
+    # dedicated SELECT-only login and keep its grants current after upgrades.
+    grafana_password = os.environ.get("GRAFANA_DB_PASSWORD")
+    if not grafana_password:
+        raise RuntimeError("GRAFANA_DB_PASSWORD is required to configure Grafana's read-only database login.")
+
+    role = sql.Identifier("grafana_reader")
+    password = sql.Literal(grafana_password)
+    exists = db.execute("SELECT 1 FROM pg_roles WHERE rolname = 'grafana_reader'").fetchone()
+    statement = "ALTER ROLE {} WITH LOGIN PASSWORD {}" if exists else "CREATE ROLE {} WITH LOGIN PASSWORD {}"
+    db.execute(sql.SQL(statement).format(role, password))
+    database = sql.Identifier(db.execute("SELECT current_database()").fetchone()[0])
+    db.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(database, role))
+    db.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role))
+    db.execute(sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}").format(role))
+    owner = sql.Identifier(db.execute("SELECT current_user").fetchone()[0])
+    db.execute(sql.SQL(
+        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA public GRANT SELECT ON TABLES TO {}"
+    ).format(owner, role))
+    log.info("Configured Grafana's read-only database login and grants")
 
 
 def main() -> None:

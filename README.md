@@ -226,6 +226,9 @@ to it after startup.
 - MQTT is published on loopback by default. Semtech UDP is unauthenticated and
   unencrypted; allow UDP 1700 only from the gateway IPs on a trusted LAN/VPN.
 - Grafana is bound to `127.0.0.1` only — reach it via an SSH tunnel.
+- The provisioned Grafana dashboard reads the live TimescaleDB measurements
+  using a separate read-only database login. See [`docs/grafana.md`](docs/grafana.md)
+  for access details and the all-device views.
 
 ## Data quality and recommendations
 

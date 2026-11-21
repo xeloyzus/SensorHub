@@ -5,6 +5,7 @@ import re
 import pytest
 
 from scripts.setup_env import SECRET_KEYS, create_env, main, site_address
+from scripts.ensure_env import ensure_runtime_secrets
 
 
 def test_generated_environment_has_distinct_secrets_and_matching_database_url(tmp_path):
@@ -17,6 +18,17 @@ def test_generated_environment_has_distinct_secrets_and_matching_database_url(tm
     assert values['DATABASE_URL'] == f"postgresql://sensorhub:{values['POSTGRES_PASSWORD']}@timescaledb:5432/sensorhub"
     assert 'DEMO_MODE' not in values
     assert b'\r' not in target.read_bytes()
+
+
+def test_runtime_secrets_are_added_without_replacing_existing_values(tmp_path):
+    target = tmp_path / '.env'
+    target.write_text('MQTT_BRIDGE_PASSWORD=keep-this\nGRAFANA_DB_PASSWORD=\n')
+    added = ensure_runtime_secrets(target)
+    values = dict(line.split('=', 1) for line in target.read_text().splitlines())
+    assert added == ['GRAFANA_DB_PASSWORD']
+    assert values['MQTT_BRIDGE_PASSWORD'] == 'keep-this'
+    assert re.fullmatch('[0-9a-f]{64}', values['GRAFANA_DB_PASSWORD'])
+    assert ensure_runtime_secrets(target) == []
 
 
 def test_existing_environment_is_never_overwritten(tmp_path, capsys):

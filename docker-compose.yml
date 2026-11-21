@@ -7,7 +7,7 @@
 #   ingest      decodes Milesight payloads and writes them to TimescaleDB
 #   timescaledb time-series storage
 #   api         FastAPI JSON API for the dashboard
-#   grafana     internal admin/debug view (bound to loopback only)
+#   grafana     provisioned, read-only device telemetry dashboards (loopback only)
 #   caddy       reverse proxy with automatic HTTPS (serves frontend + /api)
 #
 # Secrets come from a `.env` file (see `.env.example`).
@@ -141,6 +141,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
     command: ["python", "-m", "app.db.migrate"]
 
   ingest:
@@ -196,16 +197,25 @@ services:
   grafana:
     image: grafana/grafana:11.3.1  # pinned — a future major would be breaking
     restart: always
-    # Internal debugging only. Bound to loopback: reach it via an SSH tunnel
-    # (ssh -L 3000:localhost:3000 user@linux-server) rather than a public URL.
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Bound to loopback: reach port 3200 via an SSH tunnel rather than a public URL.
     ports:
       - "127.0.0.1:3200:3000"
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GRAFANA_DB_USER: grafana_reader
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
+      GRAFANA_DB_NAME: ${POSTGRES_DB:-sensorhub}
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
 
   caddy:
     image: caddy:2
