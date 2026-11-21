@@ -15,7 +15,11 @@ See [`technical-setup.md`](technical-setup.md) for the full system design.
 ## Architecture
 
 ```
-[AM103 / AM107 / CT305] --LoRaWAN--> [UG65: ChirpStack-v4 forwarder]
+[AM103 / AM107 / CT305] --LoRaWAN--> [UG65: Semtech UDP]
+                                             |
+                                             | UDP 1700
+                                             v
+                                  [ChirpStack Gateway Bridge]
                                              |
                                              | MQTT gateway frames
                                              v
@@ -30,8 +34,9 @@ See [`technical-setup.md`](technical-setup.md) for the full system design.
 [Signage browsers + mobile] <--HTTPS-- [Caddy] <-- [FastAPI api] <+
 ```
 
-All services run in this Compose project. The UG65 packet forwarder sends
-LoRaWAN frames to ChirpStack over the shared Mosquitto broker; ChirpStack then
+All services run in this Compose project. The UG65 Semtech UDP packet forwarder
+sends LoRaWAN frames to ChirpStack Gateway Bridge on UDP port 1700. The bridge
+publishes EU868 gateway events to the shared Mosquitto broker; ChirpStack then
 publishes application uplinks back to that broker for NanitesLab ingestion.
 The app's decoder handles the raw Base64 payload, so a ChirpStack codec is not
 required. The previous UG65 embedded-network-server MQTT path remains available
@@ -51,6 +56,8 @@ sensorhub/
 ├── requirements-dev.txt    # test dependencies
 ├── run.sh                  # convenience launcher (Linux server)
 ├── mosquitto/              # broker config
+├── chirpstack/             # ChirpStack v4 and EU868 configuration
+├── chirpstack-gateway-bridge/ # Semtech UDP to EU868 MQTT bridge
 ├── app/                    # FastAPI backend + frontend (layered)
 │   ├── main.py             # app entrypoint
 │   ├── dependencies.py     # get_db dependency
@@ -88,17 +95,20 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    Enter your hostname for HTTPS, or `http://SERVER_IP` for local HTTP access.
    A bare IP address is converted to HTTP. The helper generates service
    credentials and API secrets plus a matching `DATABASE_URL`; it never
-   replaces an existing `.env`. For an existing deployment, keep its current
-   credentials and fill any missing settings in `.env` using fresh, unique
-   values.
+   replaces an existing `.env`. When `bash run.sh` upgrades an older `.env`,
+   it adds only the new unique `MQTT_BRIDGE_PASSWORD` and preserves existing
+   credentials and database settings. `GATEWAY_BRIDGE_BIND_ADDRESS` defaults
+   to `0.0.0.0`; use a private interface address if preferred.
 
    The API always reads TimescaleDB populated by the MQTT ingest service.
    Generated telemetry exists only in test fixtures and is excluded from images.
 
-2. **Keep MQTT private.** The broker binds to `127.0.0.1` by default. If
-   gateways will connect remotely, set `MQTT_BIND_ADDRESS` to the server's
-   private VPN interface before starting the stack. Port 1883 is plaintext:
-   use an encrypted VPN/tunnel and do not expose it publicly.
+2. **Keep gateway traffic private.** UG65 gateways use Semtech UDP on port
+   `1700`, which has no authentication or encryption. Carry it over the private
+   LAN/VPN and restrict access to gateway IPs. Docker-published ports can bypass
+   UFW rules, so apply the restriction in the upstream firewall or Docker's
+   `DOCKER-USER` chain. Mosquitto stays private on the Docker network and
+   loopback; do not expose port `1883`.
 
 3. **Start the Linux stack**. For public HTTPS access, coordinate with UiS IT.
    Point `DOMAIN` at its approved public endpoint and arrange routing/firewall
@@ -133,9 +143,12 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    1883. Then open `http://localhost:8081`, create a tenant and application,
    then add an EU868
    device profile and register each sensor with its DevEUI, JoinEUI, and AppKey.
-   Configure the UG65 Packet Forwarder as `ChirpStack-v4`, region `eu868`, MQTT
-   server address as the server's private VPN/LAN address, port `1883`, username
-   `sensorhub-ug65-forwarder`, and password `MQTT_FORWARDER_PASSWORD`. After
+   Configure the UG65 Packet Forwarder as `Semtech`, with server address as the
+   server's private VPN/LAN address and both uplink and downlink ports set to
+   `1700`. Set the UG65 radio region and channel plan to EU868, matching the
+   ChirpStack `eu868` region. Register the gateway in ChirpStack using the exact
+   Gateway EUI shown by the UG65. Allow UDP 1700 only from the gateway network;
+   Semtech UDP has no authentication or encryption. After
    confirming ChirpStack receives uplinks, disable the old embedded-network-server
    MQTT transmission for those same sensors to avoid duplicate ingestion. See
    [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md).
@@ -209,8 +222,8 @@ to it after startup.
   uplink publishing and ingestion only uplink reading. The default topics
   cover ChirpStack v4 `event/up` and v3 `rx`; update both `MQTT_TOPIC` and
   `mosquitto/acl` if a gateway uses a different layout.
-- MQTT is published on loopback by default. Gateway traffic must arrive
-  through an encrypted VPN/tunnel, even when username/password auth is enabled.
+- MQTT is published on loopback by default. Semtech UDP is unauthenticated and
+  unencrypted; allow UDP 1700 only from the gateway IPs on a trusted LAN/VPN.
 - Grafana is bound to `127.0.0.1` only — reach it via an SSH tunnel.
 
 ## Data quality and recommendations

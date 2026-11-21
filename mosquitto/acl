@@ -20,3 +20,9 @@ user sensorhub-ug65-forwarder
 topic write eu868/gateway/+/event/+
 topic write eu868/gateway/+/state/+
 topic read eu868/gateway/+/command/#
+
+# Server-side bridge: translate Semtech UDP packets into EU868 MQTT events.
+user sensorhub-gateway-bridge
+topic write eu868/gateway/+/event/+
+topic write eu868/gateway/+/state/+
+topic read eu868/gateway/+/command/#

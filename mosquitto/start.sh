@@ -5,12 +5,20 @@ set -eu
 : "${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD}"
 : "${MQTT_CHIRPSTACK_PASSWORD:?set MQTT_CHIRPSTACK_PASSWORD}"
 : "${MQTT_FORWARDER_PASSWORD:?set MQTT_FORWARDER_PASSWORD}"
+: "${MQTT_BRIDGE_PASSWORD:?set MQTT_BRIDGE_PASSWORD}"
 if [ "$MQTT_GATEWAY_PASSWORD" = "$MQTT_INGEST_PASSWORD" ] || \
     [ "$MQTT_GATEWAY_PASSWORD" = "$MQTT_CHIRPSTACK_PASSWORD" ] || \
     [ "$MQTT_GATEWAY_PASSWORD" = "$MQTT_FORWARDER_PASSWORD" ] || \
     [ "$MQTT_INGEST_PASSWORD" = "$MQTT_CHIRPSTACK_PASSWORD" ] || \
     [ "$MQTT_INGEST_PASSWORD" = "$MQTT_FORWARDER_PASSWORD" ] || \
     [ "$MQTT_CHIRPSTACK_PASSWORD" = "$MQTT_FORWARDER_PASSWORD" ]; then
+    echo "MQTT client passwords must be different." >&2
+    exit 1
+fi
+if [ "$MQTT_BRIDGE_PASSWORD" = "$MQTT_GATEWAY_PASSWORD" ] || \
+    [ "$MQTT_BRIDGE_PASSWORD" = "$MQTT_INGEST_PASSWORD" ] || \
+    [ "$MQTT_BRIDGE_PASSWORD" = "$MQTT_CHIRPSTACK_PASSWORD" ] || \
+    [ "$MQTT_BRIDGE_PASSWORD" = "$MQTT_FORWARDER_PASSWORD" ]; then
     echo "MQTT client passwords must be different." >&2
     exit 1
 fi
@@ -26,11 +34,12 @@ mosquitto_passwd -b -c "$auth_dir/passwd" sensorhub-gateway "$MQTT_GATEWAY_PASSW
 mosquitto_passwd -b "$auth_dir/passwd" sensorhub-ingest "$MQTT_INGEST_PASSWORD"
 mosquitto_passwd -b "$auth_dir/passwd" sensorhub-chirpstack "$MQTT_CHIRPSTACK_PASSWORD"
 mosquitto_passwd -b "$auth_dir/passwd" sensorhub-ug65-forwarder "$MQTT_FORWARDER_PASSWORD"
+mosquitto_passwd -b "$auth_dir/passwd" sensorhub-gateway-bridge "$MQTT_BRIDGE_PASSWORD"
 chown mosquitto:mosquitto /mosquitto/data /mosquitto/log "$auth_dir/passwd" "$auth_dir/acl"
 chmod 0600 "$auth_dir/passwd" "$auth_dir/acl"
 mv -f "$auth_dir/passwd" /mosquitto/data/passwd
 mv -f "$auth_dir/acl" /mosquitto/data/acl
 rmdir "$auth_dir"
 trap - EXIT
-unset MQTT_GATEWAY_PASSWORD MQTT_INGEST_PASSWORD MQTT_CHIRPSTACK_PASSWORD MQTT_FORWARDER_PASSWORD
+unset MQTT_GATEWAY_PASSWORD MQTT_INGEST_PASSWORD MQTT_CHIRPSTACK_PASSWORD MQTT_FORWARDER_PASSWORD MQTT_BRIDGE_PASSWORD
 exec mosquitto -c /mosquitto/config/mosquitto.conf

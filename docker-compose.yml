@@ -1,7 +1,8 @@
 # Campus dashboard — single-host stack including ChirpStack.
 #
 #   chirpstack  LoRaWAN network server; uses the shared Mosquitto broker
-#   mosquitto   MQTT broker for UG65 forwarders, ChirpStack, and ingest
+#   gateway-bridge Semtech UDP 1700 ingress; publishes EU868 frames to MQTT
+#   mosquitto   MQTT broker for Gateway Bridge, ChirpStack, and ingest
 #   chirpstack-postgres / chirpstack-redis  ChirpStack state
 #   ingest      decodes Milesight payloads and writes them to TimescaleDB
 #   timescaledb time-series storage
@@ -32,12 +33,28 @@ services:
       MQTT_INGEST_PASSWORD: ${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD in .env}
       MQTT_CHIRPSTACK_PASSWORD: ${MQTT_CHIRPSTACK_PASSWORD:?set MQTT_CHIRPSTACK_PASSWORD in .env}
       MQTT_FORWARDER_PASSWORD: ${MQTT_FORWARDER_PASSWORD:?set MQTT_FORWARDER_PASSWORD in .env}
+      MQTT_BRIDGE_PASSWORD: ${MQTT_BRIDGE_PASSWORD:?set MQTT_BRIDGE_PASSWORD in .env}
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
       - ./mosquitto/start.sh:/mosquitto/config/start.sh:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
+
+  chirpstack-gateway-bridge:
+    image: chirpstack/chirpstack-gateway-bridge:4
+    restart: unless-stopped
+    command: ["-c", "/etc/chirpstack-gateway-bridge/chirpstack-gateway-bridge.toml"]
+    depends_on:
+      mosquitto:
+        condition: service_started
+    environment:
+      INTEGRATION__MQTT__AUTH__GENERIC__USERNAME: sensorhub-gateway-bridge
+      INTEGRATION__MQTT__AUTH__GENERIC__PASSWORD: ${MQTT_BRIDGE_PASSWORD:?set MQTT_BRIDGE_PASSWORD in .env}
+    volumes:
+      - ./chirpstack-gateway-bridge:/etc/chirpstack-gateway-bridge:ro
+    ports:
+      - "${GATEWAY_BRIDGE_BIND_ADDRESS:-0.0.0.0}:1700:1700/udp"
 
   chirpstack-postgres:
     image: postgres:16-alpine

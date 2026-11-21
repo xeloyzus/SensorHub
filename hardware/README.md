@@ -49,9 +49,10 @@ from that file, not independently verified supplier specifications.
 3. **SSD:** its source note still targets the Mac Studio. Confirm whether it
    belongs in SensorHub and check suitability for the selected Linux PC.
 4. **Network server:** ChirpStack and its supporting services are now included
-   in the NanitesLab Compose stack. UG65 gateways still need ChirpStack-v4 MQTT
-   forwarder configuration and sensors need registering; edge-to-central
-   buffering/replay is not implemented.
+   in the NanitesLab Compose stack. UG65 gateways use Semtech UDP to the
+   ChirpStack Gateway Bridge on port 1700; register each matching gateway EUI
+   and EU868 radio configuration in ChirpStack. Edge-to-central buffering/replay
+   is not implemented.
 5. **Sensor support:** migration `0003_sensor_inventory.sql` supports all three
    models and stores the CSV quantities (12/4/3) separately from registrations.
    AM107 climate, PIR activity, light, TVOC, and pressure are decoded/stored;

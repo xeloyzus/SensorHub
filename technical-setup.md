@@ -21,11 +21,11 @@ server inventory. Edge-to-central replay is not implemented.
 AM103 / AM107 / CT305 sensors
         | LoRaWAN
         v
-UG65 gateways (ChirpStack-v4 MQTT forwarder)
-        | MQTT gateway frames over private VPN/tunnel
+UG65 gateways (Semtech UDP packet forwarder)
+        | UDP 1700 over private LAN/VPN
         v
 Dedicated Linux PC — Docker Compose
-   Mosquitto <-> ChirpStack -> MQTT application events
+   Gateway Bridge -> Mosquitto <-> ChirpStack -> MQTT application events
         |                          |
         +-----------> ingest <------+ -> TimescaleDB -> FastAPI -> Caddy
                                                                | HTTPS
@@ -38,7 +38,9 @@ Dedicated Linux PC — Docker Compose
 Grafana provides an internal administration/debug view on server loopback.
 NanitesLab's ingest service decodes the raw Base64 LoRaWAN payload and writes
 telemetry to its own TimescaleDB. ChirpStack has separate PostgreSQL and Redis
-volumes. The old UG65 embedded-network-server MQTT path remains available while
+volumes. ChirpStack Gateway Bridge listens for Semtech UDP on port 1700 and
+publishes EU868 gateway events to Mosquitto with a dedicated MQTT account. The
+old UG65 embedded-network-server MQTT path remains available while
 devices and gateways are being provisioned; do not ingest the same sensor via
 both paths after cutover. The Compose services are configured, but gateway
 cutover and real sensor registration remain manual installation steps.
@@ -100,7 +102,8 @@ Run `bash run.sh` for first-time address/credential setup, and follow the
 
 | Compose service | Role |
 |---|---|
-| `mosquitto` | Authenticated broker shared by UG65, ChirpStack, and ingest |
+| `mosquitto` | Authenticated internal broker shared by Gateway Bridge, ChirpStack, and ingest |
+| `chirpstack-gateway-bridge` | Semtech UDP 1700 ingress; publishes EU868 frames to MQTT |
 | `chirpstack` | LoRaWAN network server and application event publisher |
 | `chirpstack-postgres` | ChirpStack's independent PostgreSQL database |
 | `chirpstack-redis` | ChirpStack session and queue state |
@@ -117,9 +120,11 @@ PC. If UiS provides its own public reverse proxy, agree the TLS/routing setup
 and adapt this deployment before cutover. Public DNS pointing at a campus
 private IP alone is insufficient for off-campus mobile access.
 
-Only the web endpoint is intended for public use. MQTT remains on loopback
-or an approved private VPN interface with an encrypted gateway path. Grafana
-is reached through an SSH tunnel; TimescaleDB has no published host port.
+Only the web endpoint is intended for public use. Semtech UDP 1700 is
+unauthenticated and unencrypted; allow it only from gateway IPs on an approved
+private LAN/VPN and configure the firewall accordingly. MQTT remains on loopback
+for host access and private to the Docker network. Grafana is reached through
+an SSH tunnel; TimescaleDB has no published host port.
 
 Disable server sleep, arrange startup after power loss, keep OS/container
 updates maintained, and back up the database to a separate destination.

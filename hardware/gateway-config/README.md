@@ -1,11 +1,11 @@
 # UG65 gateway configuration
 
-The recommended path uses ChirpStack v4 in the NanitesLab Compose stack. Each
-UG65 forwards LoRaWAN packets through its built-in ChirpStack-v4 MQTT forwarder
-to the shared Mosquitto broker. ChirpStack consumes those gateway frames and
-publishes application uplinks for NanitesLab's ingest service. The old embedded
-network-server MQTT path can remain active until ChirpStack is provisioned and
-ready for cutover. See [`../../technical-setup.md`](../../technical-setup.md).
+The NanitesLab Compose stack uses ChirpStack v4 with ChirpStack Gateway Bridge.
+Each UG65 forwards LoRaWAN packets using its Semtech UDP packet forwarder to
+the server on UDP port 1700. Gateway Bridge converts those packets to EU868 MQTT
+events for ChirpStack. The old embedded-network-server MQTT path can remain
+active until ChirpStack is provisioned and ready for cutover. See
+[`../../technical-setup.md`](../../technical-setup.md).
 
 ## Before switching a gateway
 
@@ -21,38 +21,42 @@ ready for cutover. See [`../../technical-setup.md`](../../technical-setup.md).
 4. Register each sensor using its DevEUI, JoinEUI, and AppKey. Register the
    same DevEUI in NanitesLab's `devices` table with its building and model.
 5. Confirm the server is reachable from the gateway over a private VPN/tunnel.
-   Set `MQTT_BIND_ADDRESS` in `.env` to the server's private interface and
-   recreate Mosquitto. The default `127.0.0.1` binding is only reachable on the
-   server PC.
+   Allow UDP port `1700` from the gateway IPs to the server. The bridge listener
+   is published on all server interfaces by default; set
+   `GATEWAY_BRIDGE_BIND_ADDRESS` in `.env` to a private interface IP if needed.
+   Keep the firewall restricted because Semtech UDP has no authentication.
 
 ## UG65 Packet Forwarder settings
 
-On each gateway, use **Packet Forwarder → General** and add/select **ChirpStack-v4**.
-Set the region ID to `eu868` and configure its MQTT connection:
+On each gateway, use **Packet Forwarder → General** and add a destination of
+type **Semtech**. Enter the server's private LAN/VPN address and set both
+Semtech UDP ports to `1700`. Configure **Packet Forwarder → Radios** for EU868;
+the channel plan must match the ChirpStack `eu868` region.
 
 | Setting | Value |
 |---|---|
-| MQTT broker address | Server's private VPN/LAN IP or DNS name |
-| MQTT port | `1883` |
-| Username | `sensorhub-ug65-forwarder` |
-| Password | `MQTT_FORWARDER_PASSWORD` from the server's `.env` |
-| Region ID | `eu868` |
-| TLS | Use a private encrypted VPN/tunnel; port 1883 itself is plaintext |
+| Type | `Semtech` |
+| Server address | Server's private VPN/LAN IP or DNS name |
+| Uplink port | `1700` / UDP |
+| Downlink port | `1700` / UDP |
+| Radio region / channel plan | EU868 |
+| Gateway ID | Exact Gateway EUI shown on the UG65, registered identically in ChirpStack |
 
 Confirm the gateway appears online in ChirpStack and that a test device's
 uplink appears in ChirpStack before disabling its old embedded-network-server
 MQTT transmission. Do not forward the same sensor through both network servers
 after cutover, because that can create duplicate events and competing downlinks.
 
-## Keep MQTT private
+## Keep gateway traffic private
 
-The broker port is bound to loopback by default. Never expose plaintext MQTT
-port 1883 directly to the public internet. Configure the VPN/tunnel and firewall
-first, then use `MQTT_BIND_ADDRESS` to bind only to the private server interface.
-The `sensorhub-ug65-forwarder`, `sensorhub-chirpstack`, and
-`sensorhub-ingest` accounts have separate ACLs and unique passwords. Changing
-one of the MQTT passwords requires recreating the Mosquitto container so its
-hashed password file is rebuilt.
+Semtech UDP port 1700 has no authentication or encryption. Use a private LAN or
+VPN and restrict the server firewall to the gateway IPs. Mosquitto remains
+bound to loopback by default and only Gateway Bridge connects to it over the
+internal Docker network. The `sensorhub-gateway-bridge`, `sensorhub-chirpstack`,
+and `sensorhub-ingest` accounts have separate ACLs and passwords. Changing the
+bridge MQTT password requires recreating Mosquitto so its hashed password file
+is rebuilt. Docker-published ports can bypass UFW rules; apply the source-IP
+restriction in the upstream firewall or Docker's `DOCKER-USER` chain as well.
 
 ## Legacy embedded network server
 
