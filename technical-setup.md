@@ -18,7 +18,7 @@ server inventory. Edge-to-central replay is not implemented.
 ## 2. Configured target data path
 
 ```text
-AM103 / AM107 / CT305 sensors
+12 Milesight AM103 sensors
         | LoRaWAN
         v
 UG65 gateways (Semtech UDP packet forwarder)
@@ -48,25 +48,27 @@ cutover and real sensor registration remain manual installation steps.
 ## 3. Updated hardware and placement
 
 The full inventory, source prices, and reconciled totals are in
-[`hardware/README.md`](hardware/README.md). The proposed sensor/display fleet is:
+[`hardware/README.md`](hardware/README.md). The current active sensor plan is
+12 AM103 units. AM107 and CT305 from the source CSV are phased out; legacy
+decoding and historical data support remain in the application.
 
 | Equipment | Quantity | Intended placement |
 |---|---:|---|
-| Milesight AM103 | 12 | Air quality across KEH, EOJ, ARK, and SiS |
-| Milesight AM107 | 4 | Large auditoriums; climate, PIR activity, light, TVOC, pressure |
-| Milesight CT305 | 3 | One per major building: KEH, EOJ, ARK |
+| Milesight AM103 | 12 | Active fleet: air quality across KEH, EOJ, ARK, and SiS |
+| Milesight AM107 | 0 | Phased out; legacy data support retained |
+| Milesight CT305 | 0 | Phased out; legacy data support retained |
 | Milesight UG65 | 3 | One per major building; verify overlapping SiS coverage |
 | Samsung signage TV | 3 | One per major building, opening the web URL |
 | Wall mount | 3 | One per TV |
 | GMKtec G10 | 1 | Listed as ChirpStack/MQTT node; server/edge role unresolved |
 | 1TB SSD | 1 | Source assigns it to the excluded Mac Studio; role unresolved |
 
-The AM103 source notes say 10 active + 3 spares despite a quantity of 12.
-With 10 active, two units remain spare unless the quantity is revised.
+The current decision is to use all 12 AM103 units. This supersedes the source
+CSV note that listed 10 active plus 3 spares.
 
-See [`hardware/sensor-placement.md`](hardware/sensor-placement.md) for siting
-and [`docs/driftsenheten-dialog.md`](docs/driftsenheten-dialog.md) for CT305
-distribution-panel access.
+See [`hardware/sensor-placement.md`](hardware/sensor-placement.md) for siting.
+The CT305 panel-access discussion is historical; CT305 installation is not part
+of the active deployment.
 
 ## 4. Repository structure
 
@@ -144,9 +146,8 @@ access, data refresh, and restart behaviour on the actual displays.
 
 ## 7. Data volume and retention
 
-- At 10 active AM103 + 4 AM107 + 3 CT305, the planned fleet has 17 devices.
-- At one uplink every 15 minutes each, that is approximately 1,632 uplinks/day.
-- Activating all 12 AM103 instead gives 19 devices and 1,824 uplinks/day.
+- The active fleet has 12 AM103 devices, or about 1,152 uplinks/day at one
+  uplink per device every 15 minutes.
 - These are planning counts; actual
   message/storage volume depends on payloads and occupancy reporting cadence.
 - Raw readings are retained for 90 days; hourly aggregates are kept indefinitely
@@ -160,17 +161,16 @@ access, data refresh, and restart behaviour on the actual displays.
 
 - [ ] Resolve whether the GMKtec is the Linux application host or a separate edge node.
 - [ ] Confirm the Linux PC's storage; remove/reassign the CSV's Mac Studio SSD note.
-- [ ] Reconcile 12 AM103 versus the note claiming 10 active + 3 spares.
+- [x] Use 12 AM103 sensors; phase AM107 and CT305 out of the active deployment.
 - [ ] Confirm exact TV SKU/size and test its built-in URL feature with the webpage.
 - [x] Add ChirpStack and MQTT integration to the single-host Compose stack.
 - [ ] Provision the ChirpStack application/devices and cut over the UG65 gateways.
-- [x] Add AM107 device-type support, payload decoding, and air-sensor analytics.
+- [x] Retain AM107/CT305 legacy decoding and history compatibility; neither is in the active plan.
 - [ ] Define occupancy/light metrics and energy-per-occupied-hour methodology;
   ventilation-control integration is not part of the current application.
 - [x] Add EOJ/SiS to the active database registry; archive Library without deleting its data.
 - [ ] Register actual sensor DevEUIs and room assignments; the CSV contains model quantities only.
 - [ ] Verify LoRaWAN coverage in each intended room, including SiS.
-- [ ] Confirm CT305 distribution-panel access with Driftsenheten.
 - [ ] Agree a stable domain and exposed HTTPS route with UiS IT.
 - [ ] Verify the live sensor path, all three screen startups, and backup recovery.
 - [ ] Decide whether a third participant joins the project.

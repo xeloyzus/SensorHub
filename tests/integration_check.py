@@ -98,6 +98,7 @@ def verify_existing_database_upgrade(db):
         db.execute(source, prepare=False)  # safe retry after an interrupted deployment
         # Historical records stay intact while new malformed writes are blocked.
         db.execute(Path('/migrations/0004_reading_integrity.sql').read_text(), prepare=False)
+        db.execute(Path('/migrations/0005_am103_only_deployment.sql').read_text(), prepare=False)
         assert db.execute("SELECT value FROM readings WHERE device_id=1").fetchone()[0] == 700
         assert db.execute("SELECT building_id FROM devices WHERE id=1").fetchone()[0] == 2
         assert db.execute("SELECT is_active FROM buildings WHERE id=2").fetchone()[0] is False
@@ -112,17 +113,15 @@ def run():
             raise RuntimeError("Refusing to write to a non-test database")
         assert db.execute("SELECT extversion FROM pg_extension WHERE extname='timescaledb'").fetchone()
         assert db.execute("SELECT to_regclass('readings_hourly')").fetchone()[0]
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 4
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 5
         verify_existing_database_upgrade(db)
         active = dict(db.execute("SELECT slug, id FROM buildings WHERE is_active").fetchall())
         assert set(active) == {"kjolv-egelands-hus", "arne-rettedals-hus", "eoj", "sis"}
         building_id = active['eoj']
-        with Path('/hardware/hardware.csv').open(encoding='utf-8-sig', newline='') as handle:
-            source_rows = list(csv.DictReader(handle))
         inventory = api('/api/sensor-models')
+        planned = {'am103': 12, 'am107': 0, 'ct305': 0}
         for model in inventory:
-            source = next(row for row in source_rows if row['Item / Equipment'].startswith(model['name']))
-            assert model['planned_quantity'] == int(source['Qty'])
+            assert model['planned_quantity'] == planned[model['type']]
         print("PASS: TimescaleDB migrations and hourly aggregate initialize", flush=True)
 
         devices = [

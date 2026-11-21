@@ -1,19 +1,19 @@
 # Sensor inventory and registration
 
-The supplied CSV specifies model quantities, not individual radio identities.
-The database stores that plan in `sensor_models`; `/api/sensor-models` returns
-planned and registered quantities separately. Register installed devices only
-after their actual DevEUI, building, and room are known.
+The current deployment uses 12 AM103 sensors. The database stores planned and
+registered quantities separately in `sensor_models`; `/api/sensor-models`
+reports both. Register each installed AM103 only after its actual DevEUI,
+building, and room are known.
 
 | Type | Planned units | Measurements |
 |---|---:|---|
-| `am103` | 12, including spares | CO2, temperature, humidity, battery |
-| `am107` | 4 | CO2, temperature, humidity, PIR activity, light, TVOC, pressure, battery |
-| `ct305` | 3 | Three phase currents, three cumulative current totals, panel temperature |
+| `am103` | 12 | CO2, temperature, humidity, battery |
+| `am107` | 0 (phased out) | Legacy support: CO2, temperature, humidity, PIR activity, light, TVOC, pressure, battery |
+| `ct305` | 0 (phased out) | Legacy support: three phase currents, cumulative current totals, panel temperature |
 
-The AM103 source notes conflict with its quantity: 10 active + 3 spares
-does not fit 12 units. The test fleet uses 10 active plus 2 spares; device registration
-does not invent an extra unit or enforce that unconfirmed allocation.
+The deployment decision is to use all 12 AM103 units. This supersedes the
+source CSV note that said 10 active plus 3 spares. AM107 and CT305 data support
+is retained for historical compatibility, but they are not planned devices.
 
 UG65 units are network gateways; the PCs, storage and TVs are infrastructure.
 They are not registered as measurement sensors in `devices`.
@@ -33,7 +33,9 @@ supports both new and existing volumes; do not delete a volume to upgrade it.
 Historical SQL files are recorded with checksums. Add a new migration for
 future changes instead of editing an already-applied file.
 
-Migration 0003 stores the 12/4/3 inventory and activates KEH, EOJ, ARK, and SiS.
+Migration 0003 stored the original 12/4/3 source inventory. Migration 0005
+updates the active plan to 12/0/0 and activates KEH, EOJ, ARK, and SiS. It does
+not delete any AM107/CT305 device registrations or readings.
 It archives the old Library record from discovery without changing its ID,
 device associations, or readings. Existing history remains accessible by ID.
 
@@ -44,11 +46,11 @@ device associations, or readings. Existing history remains accessible by ID.
 2. Look up building IDs at `/api/buildings`; use slugs rather than assuming IDs
    are identical between databases.
 3. Insert the real DevEUI, model type, label, and room. For example, replace the
-   illustrative DevEUI and room below with the installed AM107's actual values:
+   illustrative DevEUI and room below with the installed AM103's actual values:
 
    ```sql
    INSERT INTO devices (eui, building_id, type, label, room)
-   SELECT '24e124128b123456', id, 'am107', 'EOJ — Auditorium', 'Actual room'
+   SELECT '24e124128b123456', id, 'am103', 'EOJ — Teaching room 1', 'Actual room'
    FROM buildings WHERE slug = 'eoj' AND is_active;
    ```
 
@@ -56,7 +58,10 @@ device associations, or readings. Existing history remains accessible by ID.
    `metric_updated` timestamps. `/history` exposes every decoded metric.
    `/api/sensor-models` shows how many devices of each type are registered.
 
-## AM107 measurement interpretation
+## Legacy AM107 measurement interpretation
+
+AM107 is phased out of the active fleet. This section documents how existing
+AM107 records and readings remain available for compatibility.
 
 The decoder follows the [Milesight AM107 payload reference](https://github.com/Milesight-IoT/SensorDecoders/blob/main/am-series/am107/am107-decoder.js).
 It preserves all ten numeric outputs: `battery`, `temperature`, `humidity`,

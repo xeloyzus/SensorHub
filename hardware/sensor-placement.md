@@ -1,8 +1,8 @@
 # Sensor placement
 
-Updated plan: 12 AM103 inventory units, 4 AM107 sensors, and 3 CT305 current
-clamps. Air-quality coverage spans KEH, EOJ, ARK, and SiS. See
-[`README.md`](README.md) for the imported inventory and unresolved counts.
+Current plan: 12 AM103 sensors across KEH, EOJ, ARK, and SiS. AM107 and CT305
+are phased out of the active deployment; their source inventory rows remain
+in [`hardware.csv`](hardware.csv) for audit.
 
 ## AM103 — indoor air quality
 
@@ -18,25 +18,13 @@ Mount on an interior wall at ~1.5 m, away from:
 - doors/windows (drafts skew humidity and CO₂)
 - air intakes/exhausts directly above the unit
 
-Allocate the active units across KEH, EOJ, ARK, and SiS after room selection
-and coverage checks. The CSV says 10 active + 3 spares but lists only 12 units;
-10 active would leave two spares. Resolve this before final placement.
+Allocate all 12 active units across KEH, EOJ, ARK, and SiS after room selection
+and coverage checks. This supersedes the CSV note that says 10 active + 3 spares.
 
-## AM107 — large auditoriums (4 planned)
+## Phased-out models
 
-The updated inventory assigns four AM107 units to large auditoriums for
-occupancy/light alongside environmental monitoring. Record room/building and
-validate the measurement position on site. AM107 telemetry is decoded/stored
-and its climate readings contribute to air-quality summaries. PIR activity
-is kept as a numeric count; occupancy-based energy calculations remain future work.
-
-## CT305 — electricity (1 per building)
-
-- One clamp set per major building (KEH, EOJ, ARK), on the **main distribution panel**.
-- Requires **Driftsenheten access approval** (follow-up email sent — see
-  `docs/driftsenheten-dialog.md`).
-- Mount the 3 clamps on the three incoming phases; confirm orientation so the
-  readings are positive.
+AM107 and CT305 are not part of the active deployment. Legacy device records,
+decoding, and readings remain supported for data compatibility.
 
 ## Gateway (UG65) — 1 per major building
 

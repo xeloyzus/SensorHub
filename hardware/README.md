@@ -13,20 +13,22 @@ from that file, not independently verified supplier specifications.
 - The CSV lists a GMKtec G10 for ChirpStack/MQTT. ChirpStack is now configured
   in the NanitesLab Compose stack on the dedicated Linux PC; confirm whether
   the GMKtec is that PC or is no longer needed as a separate edge node.
+- Current sensor deployment decision: use 12 AM103 devices only. AM107 and
+  CT305 are phased out; their source CSV entries remain unchanged for audit.
 
 ## Imported equipment
 
 | Equipment | Quantity | Unit price (NOK) | Subtotal (NOK) | Deployment role / status |
 |---|---:|---:|---:|---|
-| Milesight AM103 | 12 | 2,377 | 28,524 | Air quality across KEH, EOJ, ARK, SiS; spare count inconsistent |
+| Milesight AM103 | 12 | 2,377 | 28,524 | Active fleet: air quality across KEH, EOJ, ARK, SiS |
 | GMKtec G10 Mini PC (Ryzen 5, 16GB) | 1 | 5,499 | 5,499 | Candidate Linux host for NanitesLab + ChirpStack; confirm actual host |
-| Milesight CT305 | 3 | 2,259 | 6,777 | One per major building: KEH, EOJ, ARK |
+| Milesight CT305 | 3 | 2,259 | 6,777 | Phased out of active deployment |
 | Milesight UG65 | 3 | 3,469 | 10,407 | Gateways in KEH, EOJ, ARK; measure SiS coverage on site |
 | SANDISK WD Black SN7100 SSD (1TB) | 1 | 2,190 | 2,190 | CSV assigns it to the Mac Studio; project role/compatibility unresolved |
 | Samsung business signage TV (CSV: `55" 4K BE65F-H`) | 3 | 5,624 | 16,872 | One display per major building; confirm exact model/size and URL player |
 | Wall mount | 3 | 999 | 2,997 | One per display |
 | Mac Studio | 1 | 32,999 | 32,999 | Outside SensorHub per user clarification |
-| Milesight AM107 | 4 | 3,171 | 12,684 | Large auditoriums; telemetry and climate analytics supported |
+| Milesight AM107 | 4 | 3,171 | 12,684 | Phased out of active deployment |
 | Contingency / miscellaneous | 0 | 15,000 | 0 | Described as a cap; currently contributes zero to the total |
 
 ## Budget reconciliation
@@ -42,8 +44,8 @@ from that file, not independently verified supplier specifications.
 
 ## Open discrepancies and implementation gaps
 
-1. **AM103 quantity:** quantity is 12, but the notes say 10 active + 3 spares
-   (13 total). Ten active would leave two spares within the stated quantity.
+1. **AM103 quantity:** the deployment now uses all 12 AM103 units; this
+   supersedes the imported note claiming 10 active + 3 spares.
 2. **Hosting:** the user's Linux PC decision supersedes the Mac Studio hosting
    note. Confirm whether the GMKtec is that PC or a separate edge machine.
 3. **SSD:** its source note still targets the Mac Studio. Confirm whether it
@@ -53,14 +55,12 @@ from that file, not independently verified supplier specifications.
    ChirpStack Gateway Bridge on port 1700; register each matching gateway EUI
    and EU868 radio configuration in ChirpStack. Edge-to-central buffering/replay
    is not implemented.
-5. **Sensor support:** migration `0003_sensor_inventory.sql` supports all three
-   models and stores the CSV quantities (12/4/3) separately from registrations.
-   AM107 climate, PIR activity, light, TVOC, and pressure are decoded/stored;
-   energy per occupied hour and ventilation control still require methodology
-   and integration work. PIR activity is not a head count or occupied flag.
+5. **Sensor scope:** migration `0005_am103_only_deployment.sql` sets the active
+   planned inventory to 12 AM103 and phases out AM107/CT305. Their decoder and
+   historical-data support remains available without deleting old records.
 6. **Buildings:** migration 0003 activates KEH, EOJ, ARK, and SiS. The old Library
    record is archived from discovery while preserving its devices and history.
-   Real DevEUIs and room placements still need registering; none are in the CSV.
+   Register the 12 AM103 DevEUIs and room placements; none are in the CSV.
 7. **Displays:** preserve the source description until the exact TV SKU and
    size are confirmed. Verify the served webpage, data refresh, and automatic
    startup using the Samsung screens' built-in URL feature before installation.

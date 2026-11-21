@@ -23,9 +23,13 @@ def test_inventory_quantities_match_supplied_csv():
     models = asyncio.run(list_sensor_models(DB()))
     with (Path(__file__).resolve().parents[1] / "hardware/hardware.csv").open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
+    planned = {"am103": 12, "am107": 0, "ct305": 0}
     for model in models:
         source = next(row for row in rows if row["Item / Equipment"].startswith(model.name))
-        assert model.planned_quantity == int(source["Qty"])
+        assert model.type in planned
+        assert model.planned_quantity == planned[model.type]
+        # The source CSV is preserved as the original hardware estimate/audit record.
+        assert int(source["Qty"]) >= model.planned_quantity
     assert {model.type for model in models} == {"am103", "am107", "ct305"}
 
 

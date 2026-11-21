@@ -1,11 +1,12 @@
 # Driftsenheten dialogue
 
-Access to the main distribution panel is required to install the CT305 current
-clamps. Status and notes for that approval.
+Historical coordination note: access to the main distribution panel would be
+required to install CT305 current clamps. CT305 has been phased out, so no
+installation or panel-access approval is needed for the current deployment.
 
 ## What we need
 
-- Approval to mount one CT305 (3 clamps) on the main distribution panel in
+- Historical request: approval to mount one CT305 (3 clamps) on the main distribution panel in
   each of the three buildings.
 - A short window with a Driftsenheten technician on site (powered-down panel
   or qualified supervision, depending on their rules).

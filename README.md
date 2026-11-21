@@ -5,17 +5,17 @@ signage screens in KEH, EOJ, and ARK open the exposed dashboard URL directly
 using Samsung's built-in internet/URL feature. The Mac Studio is used for other
 work and is outside this deployment.
 
-The updated hardware plan includes 12 AM103 sensors, 4 AM107 sensors, 3 CT305
-current clamps, and 3 UG65 gateways, with air-quality coverage also planned
-for SiS. See [`hardware/README.md`](hardware/README.md) for the imported
-hardware CSV, costs, and discrepancies that still need resolving.
+The current deployment uses 12 Milesight AM103 sensors and 3 UG65 gateways.
+AM107 sensors and CT305 current clamps are phased out of the active plan. See
+[`hardware/README.md`](hardware/README.md) for the imported source inventory
+and the updated deployment decision.
 
 See [`technical-setup.md`](technical-setup.md) for the full system design.
 
 ## Architecture
 
 ```
-[AM103 / AM107 / CT305] --LoRaWAN--> [UG65: Semtech UDP]
+[12 AM103] --LoRaWAN--> [UG65: Semtech UDP]
                                              |
                                              | UDP 1700
                                              v
@@ -39,10 +39,10 @@ sends LoRaWAN frames to ChirpStack Gateway Bridge on UDP port 1700. The bridge
 publishes EU868 gateway events to the shared Mosquitto broker; ChirpStack then
 publishes application uplinks back to that broker for NanitesLab ingestion.
 The app's decoder handles the raw Base64 payload, so a ChirpStack codec is not
-required. The previous UG65 embedded-network-server MQTT path remains available
-until ChirpStack is provisioned and you are ready to switch the gateways. AM107
-telemetry and climate analytics are supported; activity-based energy
-methodology and ventilation-control integration remain future work.
+required. AM107 and CT305 decoders remain for historical data compatibility;
+the active deployment is 12 AM103 sensors. The previous UG65
+embedded-network-server MQTT path remains available until ChirpStack is
+provisioned and you are ready to switch the gateways.
 The active building registry covers KEH, EOJ, ARK, and SiS.
 
 ## Repository layout
@@ -173,18 +173,19 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    VALUES ('24e124128b123456', 1, 'am103', 'KEH — Teaching room 1', 'Room 1');
    ```
 
-   All three sensor models are supported. The CSV quantities are stored as a
-   hardware plan (12 AM103, 4 AM107, 3 CT305), separately from actual device
-   registrations. The CSV does not contain DevEUIs or room assignments; add
-   those from the physical sensors using [`docs/sensor-registration.md`](docs/sensor-registration.md).
+   The active target is 12 AM103 sensors. AM107 and CT305 remain supported for
+   legacy data, but their planned quantities are zero. The source CSV does not
+   contain DevEUIs or room assignments; register each installed AM103 using
+   [`docs/sensor-registration.md`](docs/sensor-registration.md).
 
 ## Database upgrades
 
 `bash run.sh` validates the existing `.env` and runs the `migrate` job before API/ingestion start.
 It applies ordered SQL migrations once, records their checksums, and rolls back
 a failed migration. Existing TimescaleDB volumes are upgraded in place.
-Migration `0003_sensor_inventory.sql` adds AM107, sensor quantities/capabilities,
-EOJ and SiS. Legacy Library devices/history are preserved; that building is
+Migration `0003_sensor_inventory.sql` adds legacy model capabilities, original
+sensor quantities, EOJ and SiS. Migration `0005_am103_only_deployment.sql`
+sets planned quantities to 12 AM103, 0 AM107, and 0 CT305. Legacy Library devices/history are preserved; that building is
 archived from active discovery, and its existing ID remains directly queryable.
 Migration `0004_reading_integrity.sql` adds finite-value, device-ID, and nonempty
 label/metric checks for new writes, plus query indexes. Existing records are
@@ -211,10 +212,8 @@ without printing secrets using `docker compose --env-file .env config --quiet`.
 
 ## Storage
 
-- With 10 active AM103, 4 AM107, and 3 CT305, the planned fleet is 17 active
-  devices: about 1,632 uplinks/day at one report per device every 15 minutes.
-  The AM103 spare count still needs resolving. If all 12
-  AM103 are active, the count becomes 19 devices and 1,824 uplinks/day.
+- The active fleet is 12 AM103 sensors: about 1,152 uplinks/day at one report
+  per sensor every 15 minutes.
 - Raw readings kept 90 days, then rolled into hourly averages
   (`app/db/migrations/0002_retention.sql`). 20 GB of disk covers years of operation.
 
@@ -252,8 +251,8 @@ sensors. An air sensor requires CO2, temperature, and humidity timestamps;
 a current clamp requires all three phase-current timestamps. A new battery
 reading does not make old environmental readings current.
 
-Indoor temperature statistics include AM103 and AM107 air sensors, excluding
-CT305 panel temperatures. Current campus
+Indoor temperature statistics include registered AM103 and legacy AM107 air
+sensors, excluding CT305 panel temperatures. Current campus
 averages are weighted by reporting sensors, historical means by populated
 15-minute buckets, and coverage includes registered air sensors with no data.
 Historical min/max/p95 describe bucket averages, not raw peaks. Measured zero
