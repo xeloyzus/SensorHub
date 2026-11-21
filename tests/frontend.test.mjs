@@ -169,6 +169,16 @@ test("Samsung URL page loads and refreshes using the published display interval"
   await scheduled.shift().callback();
   assert.equal(elements["display-co2"].textContent, "900 ppm");
   assert.equal(scheduled[0].milliseconds, 45_000);
+
+  co2.current = null;
+  co2.last_known = 650;
+  co2.last_known_source_count = 1;
+  co2.last_known_age_minutes = 1888;
+  await scheduled.shift().callback();
+  assert.equal(elements["display-co2"].textContent, "650 ppm");
+  assert.match(elements["display-co2-context"].textContent, /1d 7h 28m old/);
+  assert.match(elements["scene-campus-summary"].textContent, /Current CO2 data is unavailable/);
+  assert.match(elements["display-map-summary"].textContent, /stale/);
 });
 
 test("overview recovers after an API outage without losing its page elements", async () => {
@@ -203,4 +213,10 @@ test("overview recovers after an API outage without losing its page elements", a
   await scheduled.shift()();
   assert.equal(getElementById("overview-error").hidden, true);
   assert.ok(getElementById("campus-status").textContent.includes("CO2"));
+
+  metric.last_known = 640;
+  metric.last_known_source_count = 1;
+  metric.last_known_age_minutes = 1888;
+  await scheduled.shift()();
+  assert.match(getElementById("campus-status").textContent, /Last known campus CO2 was 640 ppm/);
 });

@@ -227,6 +227,18 @@ def _metric_stats(
     current_values = list(current_values)
     current = _rounded_mean(current_values)
     source_count = len(current_values)
+    last_known_samples = [
+        (float(sensor.readings[metric]), _aware_utc(sensor.metric_updated[metric]))
+        for sensor in sensors
+        if metric in sensor.readings and sensor.metric_updated.get(metric) is not None
+        and _aware_utc(sensor.metric_updated[metric]) <= _aware_utc(now)
+    ]
+    last_known = _rounded_mean([value for value, _ in last_known_samples])
+    last_known_age = (
+        max(round((now - timestamp).total_seconds() / 60) for _, timestamp in last_known_samples)
+        if last_known_samples
+        else None
+    )
     registered_count = len(sensors)
     expected = registered_count * EXPECTED_24H_SAMPLES_PER_SERIES
     coverage = min(1.0, round(len(points) / expected, 2)) if expected else 0.0
@@ -236,6 +248,9 @@ def _metric_stats(
             label=label,
             unit=unit,
             current=current,
+            last_known=last_known,
+            last_known_source_count=len(last_known_samples),
+            last_known_age_minutes=last_known_age,
             sample_count=0,
             source_count=source_count,
             registered_source_count=registered_count,
@@ -256,6 +271,9 @@ def _metric_stats(
         label=label,
         unit=unit,
         current=_round_optional(current, precision),
+        last_known=_round_optional(last_known, precision),
+        last_known_source_count=len(last_known_samples),
+        last_known_age_minutes=last_known_age,
         mean_24h=round(mean(points), precision),
         median_24h=round(median(points), precision),
         min_24h=round(min(points), precision),
@@ -475,6 +493,14 @@ def _combine_metric(
         unit=unit,
         current=_round_optional(
             _weighted_metric(metric_list, "current", "source_count"), precision
+        ),
+        last_known=_round_optional(
+            _weighted_metric(metric_list, "last_known", "last_known_source_count"), precision
+        ),
+        last_known_source_count=sum(metric.last_known_source_count for metric in metric_list),
+        last_known_age_minutes=max(
+            [metric.last_known_age_minutes for metric in metric_list if metric.last_known_age_minutes is not None],
+            default=None,
         ),
         mean_24h=_round_optional(
             _weighted_metric(metric_list, "mean_24h", "sample_count"), precision

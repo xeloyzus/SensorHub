@@ -54,6 +54,9 @@ def test_new_temperature_does_not_freshen_old_co2(monkeypatch):
     partial.metric_updated["co2"] = NOW - timedelta(hours=2)
     result = summary(monkeypatch, [partial], [])
     assert result.co2.current is None
+    assert result.co2.last_known == 1100
+    assert result.co2.last_known_source_count == 1
+    assert result.co2.last_known_age_minutes == 120
     assert result.temperature.current == 21
     assert result.data_quality.stale_sensors == 1
 

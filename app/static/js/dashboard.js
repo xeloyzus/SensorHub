@@ -9,11 +9,28 @@ function formatNumber(value, decimals = 0) {
 }
 
 function formatMetric(metric, decimals = 0) {
-  if (!metric || metric.current == null) return "--";
-  return `${formatNumber(metric.current, decimals)} ${metric.unit}`;
+  const value = metric?.current ?? metric?.last_known;
+  if (value == null) return "--";
+  return `${formatNumber(value, decimals)} ${metric.unit}`;
+}
+
+function metricAgeText(minutes) {
+  if (minutes == null) return "age unknown";
+  if (minutes < 60) return `${minutes} min old`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const days = Math.floor(hours / 24);
+  return days
+    ? `${days}d ${hours % 24}h ${remainingMinutes}m old`
+    : `${hours}h ${remainingMinutes}m old`;
 }
 
 function metricContext(metric) {
+  if (metric?.current == null && metric?.last_known != null) {
+    const count = metric.last_known_source_count || 0;
+    const sourceText = `${count} sensor${count === 1 ? "" : "s"}`;
+    return `Last known · ${sourceText} · oldest value ${metricAgeText(metric.last_known_age_minutes)} · not current`;
+  }
   if (!metric || metric.sample_count === 0) return "No 24-hour history yet";
   const direction =
     metric.change_1h == null
@@ -134,13 +151,24 @@ function renderRecommendations(summary) {
 
 async function renderCampusChart(summary, methodology) {
   const bestBuilding = summary.buildings
-    .filter((building) => building.co2.source_count > 0)
-    .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0))[0];
-  const history = bestBuilding ? await getHistory(bestBuilding.building.id, "24h") : { series: [] };
-  const data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
+    .filter((building) => building.co2.source_count > 0 || building.co2.last_known_source_count > 0)
+    .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0))[0];
+  let range = "24h";
+  let history = bestBuilding ? await getHistory(bestBuilding.building.id, range) : { series: [] };
+  let data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
+  if (!data.length && bestBuilding) {
+    range = "30d";
+    history = await getHistory(bestBuilding.building.id, range);
+    data = aggregateMetricHistory(history, "co2", { bucketMinutes: 360 });
+  }
+  document.getElementById("timeline-title").textContent = range === "30d"
+    ? "CO2 history over the last 30 days"
+    : "CO2 over the last 24 hours";
   if (!data.length) {
     renderTimeSeriesChart({ container: "#co2-chart", data: [], metric: { label: "CO2" } });
-    document.getElementById("timeline-summary").textContent = "No CO2 history is available yet. Readings will appear as sensors report.";
+    document.getElementById("timeline-summary").textContent = bestBuilding
+      ? "No chart history is available in the last 30 days. Last known sensor values remain shown above."
+      : "No sensor readings have been received yet.";
     return;
   }
 
@@ -161,7 +189,7 @@ async function renderCampusChart(summary, methodology) {
   const min = Math.min(...values);
   const max = Math.max(...values);
   document.getElementById("timeline-summary").textContent =
-    `${bestBuilding.building.name} CO2 ranged from ${formatNumber(min)} to ${formatNumber(max)} ppm in the selected 24-hour period.`;
+    `${bestBuilding.building.name} CO2 ranged from ${formatNumber(min)} to ${formatNumber(max)} ppm in the last ${range === "30d" ? "30 days" : "24 hours"}.`;
 }
 
 async function initCampusPulse() {
@@ -171,10 +199,11 @@ async function initCampusPulse() {
       [status] = await Promise.all([getSystemStatus()]);
       renderDataSource(status);
       const [summary, methodology] = await Promise.all([getCampusSummary(), getMethodology()]);
-      document.getElementById("campus-status").textContent =
-        summary.co2.current == null
-          ? "Waiting for the first campus CO2 readings."
-          : `Average campus CO2 is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} air sensors.`;
+      document.getElementById("campus-status").textContent = summary.co2.current != null
+        ? `Average campus CO2 is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} reporting air sensors.`
+        : summary.co2.last_known != null
+          ? `Current data is unavailable. Last known campus CO2 was ${formatNumber(summary.co2.last_known)} ppm across ${summary.co2.last_known_source_count} sensors (${metricAgeText(summary.co2.last_known_age_minutes)}).`
+          : "No CO2 sensor readings have been received yet.";
       const badge = document.getElementById("freshness-badge");
       badge.textContent = freshnessLabel(summary.data_quality.freshness);
       badge.className = `freshness-badge ${summary.data_quality.freshness.status}`;

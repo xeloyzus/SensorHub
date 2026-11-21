@@ -28,6 +28,9 @@ class MetricStatistics(BaseModel):
     label: str
     unit: str
     current: float | None = None
+    last_known: float | None = None
+    last_known_source_count: int = 0
+    last_known_age_minutes: int | None = None
     mean_24h: float | None = None
     median_24h: float | None = None
     min_24h: float | None = None

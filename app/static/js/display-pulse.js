@@ -27,9 +27,21 @@ function formatNumber(value, decimals = 0) {
   });
 }
 
+function metricAgeText(minutes) {
+  if (minutes == null) return "age unknown";
+  if (minutes < 60) return `${minutes} min old`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const days = Math.floor(hours / 24);
+  return days
+    ? `${days}d ${hours % 24}h ${remainingMinutes}m old`
+    : `${hours}h ${remainingMinutes}m old`;
+}
+
 function metricValue(metric, decimals = 0) {
-  if (!metric || metric.current == null) return "--";
-  return `${formatNumber(metric.current, decimals)} ${metric.unit}`;
+  const value = metric?.current ?? metric?.last_known;
+  if (value == null) return "--";
+  return `${formatNumber(value, decimals)} ${metric.unit}`;
 }
 
 function metricTrend(metric) {
@@ -104,8 +116,8 @@ function pickLocalBuilding(summary, config) {
   return (
     summary.buildings.find((building) => buildingMatches(building, config.building)) ||
     summary.buildings
-      .filter((building) => building.co2.current != null)
-      .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0))[0] ||
+      .filter((building) => building.co2.current != null || building.co2.last_known != null)
+      .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0))[0] ||
     summary.buildings[0]
   );
 }
@@ -163,17 +175,22 @@ function renderDisplaySummary(summary) {
   document.getElementById("display-confidence").textContent =
     `${summary.data_quality.active_sensors} sensors · ${coveragePercent(summary.co2)}% coverage`;
   document.getElementById("display-updated").textContent = freshness.description;
-  document.getElementById("scene-campus-summary").textContent =
-    summary.co2.current == null
-      ? "Waiting for the first campus CO2 readings."
-      : `${co2StatusSentence(summary.co2)} Average is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} reporting air sensors.`;
+  document.getElementById("scene-campus-summary").textContent = summary.co2.current != null
+    ? `${co2StatusSentence(summary.co2)} Average is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} reporting air sensors.`
+    : summary.co2.last_known != null
+      ? `Current CO2 data is unavailable. Last known campus average is ${formatNumber(summary.co2.last_known)} ppm across ${summary.co2.last_known_source_count} sensors; oldest included value is ${metricAgeText(summary.co2.last_known_age_minutes)}.`
+      : "No CO2 sensor readings have been received yet.";
 
   document.getElementById("display-co2").textContent = metricValue(summary.co2);
   document.getElementById("display-co2-context").textContent =
-    `${metricTrend(summary.co2)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`;
+    summary.co2.current == null && summary.co2.last_known != null
+      ? `Last known · ${metricAgeText(summary.co2.last_known_age_minutes)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`
+      : `${metricTrend(summary.co2)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`;
   document.getElementById("display-temp").textContent = metricValue(summary.temperature, 1);
   document.getElementById("display-temp-context").textContent =
-    `${metricTrend(summary.temperature)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`;
+    summary.temperature.current == null && summary.temperature.last_known != null
+      ? `Last known · ${metricAgeText(summary.temperature.last_known_age_minutes)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`
+      : `${metricTrend(summary.temperature)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`;
   document.getElementById("display-energy").textContent =
     summary.energy.current_kw == null ? "--" : `${formatNumber(summary.energy.current_kw, 1)} kW`;
 }
@@ -187,7 +204,9 @@ function renderLocalFocus(summary, config) {
     ? "This building now"
     : "Highest CO2 now";
   document.getElementById("display-local-summary").textContent =
-    `${co2StatusSentence(building.co2, building.building.name)} Latest average is ${metricValue(building.co2)}.`;
+    building.co2.current == null && building.co2.last_known != null
+      ? `${building.building.name} has no current CO2 update. Last known average is ${metricValue(building.co2)}, ${metricAgeText(building.co2.last_known_age_minutes)}.`
+      : `${co2StatusSentence(building.co2, building.building.name)} Latest average is ${metricValue(building.co2)}.`;
 
   const recommendation = building.recommendations[0];
   document.getElementById("display-local-card").innerHTML = `
@@ -212,6 +231,12 @@ function renderDisplayBuildings(summary) {
       const action = recommendation
         ? `Possible action: ${recommendation.verification}`
         : "No action suggested right now.";
+      const co2Context = building.co2.current == null && building.co2.last_known != null
+        ? `Last known ${metricAgeText(building.co2.last_known_age_minutes)}`
+        : `${formatNumber(building.co2.coverage_24h * 100)}% coverage`;
+      const temperatureContext = building.temperature.current == null && building.temperature.last_known != null
+        ? `Last known ${metricAgeText(building.temperature.last_known_age_minutes)}`
+        : "";
       return `
         <article class="display-building-card">
           <div>
@@ -223,7 +248,7 @@ function renderDisplayBuildings(summary) {
             <span>Temp<strong>${metricValue(building.temperature, 1)}</strong></span>
             <span>Energy<strong>${building.energy.current_kw == null ? "--" : `${formatNumber(building.energy.current_kw, 1)} kW`}</strong></span>
           </div>
-          <p>${escapeHtml(metricTrend(building.co2))} · ${formatNumber(building.co2.coverage_24h * 100)}% coverage</p>
+          <p>${escapeHtml(co2Context)}${temperatureContext ? ` · Temperature ${escapeHtml(temperatureContext)}` : ""}</p>
           <p>${escapeHtml(action)}</p>
         </article>
       `;
@@ -233,25 +258,30 @@ function renderDisplayBuildings(summary) {
 
 function renderCampusMap(summary) {
   const buildings = [...summary.buildings]
-    .filter((building) => building.co2.current != null)
-    .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0));
+    .filter((building) => building.co2.current != null || building.co2.last_known != null)
+    .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0));
   const highest = buildings[0];
   document.getElementById("display-map-summary").textContent = highest
-    ? `${highest.building.name} has the highest current CO2 average.`
+    ? highest.co2.current != null
+      ? `${highest.building.name} has the highest current CO2 average.`
+      : `${highest.building.name} has the highest last-known CO2 value; readings are stale.`
     : "Building comparison is unavailable until CO2 readings arrive.";
 
-  const max = Math.max(...buildings.map((building) => building.co2.current || 0), 1);
+  const max = Math.max(...buildings.map((building) => building.co2.current ?? building.co2.last_known ?? 0), 1);
   document.getElementById("display-campus-map").innerHTML = buildings
     .map((building, index) => {
-      const level = Math.max(18, Math.round(((building.co2.current || 0) / max) * 100));
-      const tone = building.co2.current >= 1000 ? "attention" : building.co2.current >= 800 ? "watch" : "good";
+      const value = building.co2.current ?? building.co2.last_known;
+      const level = Math.max(18, Math.round(((value || 0) / max) * 100));
+      const tone = value >= 1000 ? "attention" : value >= 800 ? "watch" : "good";
       return `
         <article class="display-map-building ${tone}">
           <div class="display-map-bar" style="height: ${level}%"></div>
           <span>${index + 1}</span>
           <h3>${escapeHtml(building.building.name)}</h3>
           <strong>${metricValue(building.co2)}</strong>
-          <em>${escapeHtml(freshnessText(building.data_quality.freshness))}</em>
+          <em>${escapeHtml(building.co2.current == null && building.co2.last_known != null
+            ? `Last known ${metricAgeText(building.co2.last_known_age_minutes)}`
+            : freshnessText(building.data_quality.freshness))}</em>
         </article>
       `;
     })
@@ -323,13 +353,24 @@ function renderDisplayAction(summary) {
 
 async function renderDisplayChart(summary, methodology) {
   const selected = summary.buildings
-    .filter((building) => building.co2.source_count > 0)
-    .sort((a, b) => (b.co2.current || 0) - (a.co2.current || 0))[0];
-  const history = selected ? await getHistory(selected.building.id, "24h") : { series: [] };
-  const data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
+    .filter((building) => building.co2.source_count > 0 || building.co2.last_known_source_count > 0)
+    .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0))[0];
+  let range = "24h";
+  let history = selected ? await getHistory(selected.building.id, range) : { series: [] };
+  let data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
+  if (!data.length && selected) {
+    range = "30d";
+    history = await getHistory(selected.building.id, range);
+    data = aggregateMetricHistory(history, "co2", { bucketMinutes: 360 });
+  }
+  document.getElementById("scene-air-title").textContent = range === "30d"
+    ? "CO2 history over the last 30 days"
+    : "CO2 over 24 hours";
   if (!data.length) {
     renderTimeSeriesChart({ container: "#display-co2-chart", data: [], metric: { label: "CO2" } });
-    document.getElementById("display-chart-summary").textContent = "No CO2 history is available yet. Readings will appear as sensors report.";
+    document.getElementById("display-chart-summary").textContent = selected
+      ? "No chart history is available in the last 30 days. Last known values remain shown on the dashboard."
+      : "No sensor readings have been received yet.";
     return;
   }
 
@@ -350,7 +391,7 @@ async function renderDisplayChart(summary, methodology) {
       strokeWidth: 4,
       thresholds: methodology.co2_bands || [],
       annotations: [
-        { type: "point", label: `Now ${formatNumber(latest.value)} ppm`, time: latest.time, value: latest.value, dy: 34 },
+        { type: "point", label: `Latest ${formatNumber(latest.value)} ppm`, time: latest.time, value: latest.value, dy: 34 },
         { type: "point", label: `Peak ${formatNumber(peak.value)} ppm`, time: peak.time, value: peak.value, dy: -22 },
         { type: "threshold", label: "Reference", value: methodology.co2_reference_ppm },
       ],
@@ -359,7 +400,7 @@ async function renderDisplayChart(summary, methodology) {
 
   const values = data.map((point) => point.value);
   document.getElementById("display-chart-summary").textContent =
-    `${selected.building.name} ranged from ${formatNumber(Math.min(...values))} to ${formatNumber(Math.max(...values))} ppm in the last 24 hours.`;
+    `${selected.building.name} ranged from ${formatNumber(Math.min(...values))} to ${formatNumber(Math.max(...values))} ppm in the last ${range === "30d" ? "30 days" : "24 hours"}.`;
 }
 
 function startSceneRotation(config) {
