@@ -1,0 +1,29 @@
+# ChirpStack v4 configuration for the single-host SensorHub stack.
+
+[logging]
+level = "info"
+
+[postgresql]
+dsn = "postgres://chirpstack:$CHIRPSTACK_POSTGRES_PASSWORD@chirpstack-postgres/chirpstack?sslmode=disable"
+
+[redis]
+servers = ["redis://chirpstack-redis/"]
+
+[network]
+net_id = "000000"
+enabled_regions = ["eu868"]
+
+[api]
+bind = "0.0.0.0:8080"
+secret = "$CHIRPSTACK_API_SECRET"
+
+[integration]
+enabled = ["mqtt"]
+
+[integration.mqtt]
+event_topic = "application/{{application_id}}/device/{{dev_eui}}/event/{{event}}"
+command_topic = "application/{{application_id}}/device/{{dev_eui}}/command/{{command}}"
+json = true
+server = "tcp://mosquitto:1883/"
+username = "sensorhub-chirpstack"
+password = "$MQTT_CHIRPSTACK_PASSWORD"

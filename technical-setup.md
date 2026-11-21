@@ -11,40 +11,37 @@ built-in internet/URL feature.
 The Mac Studio is reserved for other work and is outside Campus dashboard.
 
 The imported [`hardware/hardware.csv`](hardware/hardware.csv) also lists a
-GMKtec G10 for ChirpStack/MQTT. Whether it is the dedicated Linux PC or a
-separate edge node still needs confirming. Keep that distinction explicit:
-the repository currently deploys one application/broker host and does not
-include a ChirpStack service or an edge-to-central replay mechanism.
+GMKtec G10 for ChirpStack/MQTT. This Compose stack now runs ChirpStack on the
+same Linux PC as NanitesLab; reconcile the listed hardware role with the actual
+server inventory. Edge-to-central replay is not implemented.
 
-## 2. Implemented data path
+## 2. Configured target data path
 
 ```text
 AM103 / AM107 / CT305 sensors
         | LoRaWAN
         v
-UG65 gateways (embedded network server)
-        | MQTT over encrypted VPN/tunnel
+UG65 gateways (ChirpStack-v4 MQTT forwarder)
+        | MQTT gateway frames over private VPN/tunnel
         v
 Dedicated Linux PC — Docker Compose
-   Mosquitto -> ingest -> TimescaleDB -> FastAPI
-                                        |
-                                      Caddy
-                                        | HTTPS
-               +------------------------+----------------------+
-               v                        v                      v
-      Signage browsers (3)       Interactive dashboard     Mobile view
-              /                       /overview              /mobile
+   Mosquitto <-> ChirpStack -> MQTT application events
+        |                          |
+        +-----------> ingest <------+ -> TimescaleDB -> FastAPI -> Caddy
+                                                               | HTTPS
+                               +-------------------------------+----------+
+                               v                               v          v
+                     Signage browsers (3)          Interactive dashboard  Mobile
+                             /                          /overview         /mobile
 ```
 
 Grafana provides an internal administration/debug view on server loopback.
-Data goes directly to the custom backend without Milesight IoT Cloud.
-
-**Planned addition:** UG65 gateways forwarding LoRaWAN traffic to a local
-ChirpStack network server, which publishes application uplinks to MQTT.
-This requires gateway/network-server configuration and deployment work;
-it is not enabled by the current Compose file. If MQTT is placed on a
-separate edge node, ingestion's broker connection and credentials must be
-configured accordingly; Compose currently fixes `MQTT_HOST` to `mosquitto`.
+NanitesLab's ingest service decodes the raw Base64 LoRaWAN payload and writes
+telemetry to its own TimescaleDB. ChirpStack has separate PostgreSQL and Redis
+volumes. The old UG65 embedded-network-server MQTT path remains available while
+devices and gateways are being provisioned; do not ingest the same sensor via
+both paths after cutover. The Compose services are configured, but gateway
+cutover and real sensor registration remain manual installation steps.
 
 ## 3. Updated hardware and placement
 
@@ -73,11 +70,12 @@ distribution-panel access.
 
 ```text
 sensorhub/
-├── docker-compose.yml      # six running services + one migration job
+├── docker-compose.yml      # app, ChirpStack, and supporting services
 ├── Caddyfile               # HTTPS reverse proxy to FastAPI
 ├── .env.example            # runtime configuration template
 ├── run.sh                  # Linux launcher
 ├── mosquitto/              # broker configuration, ACLs, startup script
+├── chirpstack/             # ChirpStack v4 and EU868 configuration
 ├── ingest/                 # MQTT parser, device registry, Milesight decoders
 ├── app/
 │   ├── core/               # runtime settings
@@ -102,7 +100,10 @@ Run `bash run.sh` for first-time address/credential setup, and follow the
 
 | Compose service | Role |
 |---|---|
-| `mosquitto` | Authenticated MQTT broker with gateway/ingest ACLs |
+| `mosquitto` | Authenticated broker shared by UG65, ChirpStack, and ingest |
+| `chirpstack` | LoRaWAN network server and application event publisher |
+| `chirpstack-postgres` | ChirpStack's independent PostgreSQL database |
+| `chirpstack-redis` | ChirpStack session and queue state |
 | `migrate` | Ordered database upgrades before ingestion/API startup |
 | `ingest` | AM103/AM107/CT305 decoding and transactional database writes |
 | `timescaledb` | Sensor registry, readings, hourly aggregates |
@@ -154,7 +155,8 @@ access, data refresh, and restart behaviour on the actual displays.
 - [ ] Confirm the Linux PC's storage; remove/reassign the CSV's Mac Studio SSD note.
 - [ ] Reconcile 12 AM103 versus the note claiming 10 active + 3 spares.
 - [ ] Confirm exact TV SKU/size and test its built-in URL feature with the webpage.
-- [ ] Decide/deploy ChirpStack and its gateway/MQTT integration.
+- [x] Add ChirpStack and MQTT integration to the single-host Compose stack.
+- [ ] Provision the ChirpStack application/devices and cut over the UG65 gateways.
 - [x] Add AM107 device-type support, payload decoding, and air-sensor analytics.
 - [ ] Define occupancy/light metrics and energy-per-occupied-hour methodology;
   ventilation-control integration is not part of the current application.

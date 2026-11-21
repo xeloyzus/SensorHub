@@ -1,7 +1,8 @@
-# Campus dashboard — dedicated Linux PC production stack.
-# ChirpStack / a separate edge broker are not included in this configuration.
+# Campus dashboard — single-host stack including ChirpStack.
 #
-#   mosquitto   MQTT broker that receives uplinks from the UG65 gateways
+#   chirpstack  LoRaWAN network server; uses the shared Mosquitto broker
+#   mosquitto   MQTT broker for UG65 forwarders, ChirpStack, and ingest
+#   chirpstack-postgres / chirpstack-redis  ChirpStack state
 #   ingest      decodes Milesight payloads and writes them to TimescaleDB
 #   timescaledb time-series storage
 #   api         FastAPI JSON API for the dashboard
@@ -29,12 +30,62 @@ services:
     environment:
       MQTT_GATEWAY_PASSWORD: ${MQTT_GATEWAY_PASSWORD:?set MQTT_GATEWAY_PASSWORD in .env}
       MQTT_INGEST_PASSWORD: ${MQTT_INGEST_PASSWORD:?set MQTT_INGEST_PASSWORD in .env}
+      MQTT_CHIRPSTACK_PASSWORD: ${MQTT_CHIRPSTACK_PASSWORD:?set MQTT_CHIRPSTACK_PASSWORD in .env}
+      MQTT_FORWARDER_PASSWORD: ${MQTT_FORWARDER_PASSWORD:?set MQTT_FORWARDER_PASSWORD in .env}
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/acl:/mosquitto/config/acl:ro
       - ./mosquitto/start.sh:/mosquitto/config/start.sh:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
+
+  chirpstack-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chirpstack
+      POSTGRES_USER: chirpstack
+      POSTGRES_PASSWORD: ${CHIRPSTACK_POSTGRES_PASSWORD:?set CHIRPSTACK_POSTGRES_PASSWORD in .env}
+    volumes:
+      - chirpstack-postgres-data:/var/lib/postgresql/data
+      - ./chirpstack/postgresql/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chirpstack -d chirpstack"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  chirpstack-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - chirpstack-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  chirpstack:
+    image: chirpstack/chirpstack:4
+    restart: unless-stopped
+    command: ["-c", "/etc/chirpstack"]
+    depends_on:
+      chirpstack-postgres:
+        condition: service_healthy
+      chirpstack-redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    environment:
+      CHIRPSTACK_POSTGRES_PASSWORD: ${CHIRPSTACK_POSTGRES_PASSWORD:?set CHIRPSTACK_POSTGRES_PASSWORD in .env}
+      CHIRPSTACK_API_SECRET: ${CHIRPSTACK_API_SECRET:?set CHIRPSTACK_API_SECRET in .env}
+      MQTT_CHIRPSTACK_PASSWORD: ${MQTT_CHIRPSTACK_PASSWORD:?set MQTT_CHIRPSTACK_PASSWORD in .env}
+    volumes:
+      - ./chirpstack/configuration:/etc/chirpstack:ro
+    ports:
+      - "${CHIRPSTACK_BIND_ADDRESS:-127.0.0.1}:${CHIRPSTACK_HTTP_PORT:-8081}:8080"
 
   timescaledb:
     image: timescale/timescaledb:2.17.2-pg16  # pinned — a future 3.x would be breaking
@@ -146,6 +197,8 @@ services:
 volumes:
   mosquitto-data:
   mosquitto-log:
+  chirpstack-postgres-data:
+  chirpstack-redis-data:
   timescale-data:
   grafana-data:
   caddy-data:

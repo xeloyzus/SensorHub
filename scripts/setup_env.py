@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SECRET_KEYS = (
     "POSTGRES_PASSWORD", "GRAFANA_ADMIN_PASSWORD",
     "MQTT_GATEWAY_PASSWORD", "MQTT_INGEST_PASSWORD",
+    "MQTT_CHIRPSTACK_PASSWORD", "MQTT_FORWARDER_PASSWORD",
+    "CHIRPSTACK_POSTGRES_PASSWORD", "CHIRPSTACK_API_SECRET",
 )
 
 
@@ -104,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError) as exc:
         print(f"Configuration was not created: {exc}", file=sys.stderr)
         return 1
-    print(f"Created {args.output} with four generated passwords. Keep this file private.")
+    print(f"Created {args.output} with generated credentials and API secrets. Keep this file private.")
     display_url = f"http://localhost:{http_port}" if address == "http://" else address if '://' in address else 'https://' + address
     print(f"Dashboard address: {display_url}")
     return 0

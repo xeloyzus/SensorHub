@@ -10,15 +10,16 @@ from that file, not independently verified supplier specifications.
 - Three Samsung signage screens use their built-in internet/URL feature to
   open `https://<DOMAIN>/` directly using their integrated browser.
 - The Mac Studio is used for other work and is excluded from this deployment.
-- The CSV proposes a GMKtec G10 for ChirpStack/MQTT. Whether this is also the
-  dedicated Linux server or remains a separate edge node is unresolved.
+- The CSV lists a GMKtec G10 for ChirpStack/MQTT. ChirpStack is now configured
+  in the NanitesLab Compose stack on the dedicated Linux PC; confirm whether
+  the GMKtec is that PC or is no longer needed as a separate edge node.
 
 ## Imported equipment
 
 | Equipment | Quantity | Unit price (NOK) | Subtotal (NOK) | Deployment role / status |
 |---|---:|---:|---:|---|
 | Milesight AM103 | 12 | 2,377 | 28,524 | Air quality across KEH, EOJ, ARK, SiS; spare count inconsistent |
-| GMKtec G10 Mini PC (Ryzen 5, 16GB) | 1 | 5,499 | 5,499 | Listed for ChirpStack/MQTT; server/edge split unresolved |
+| GMKtec G10 Mini PC (Ryzen 5, 16GB) | 1 | 5,499 | 5,499 | Candidate Linux host for NanitesLab + ChirpStack; confirm actual host |
 | Milesight CT305 | 3 | 2,259 | 6,777 | One per major building: KEH, EOJ, ARK |
 | Milesight UG65 | 3 | 3,469 | 10,407 | Gateways in KEH, EOJ, ARK; measure SiS coverage on site |
 | SANDISK WD Black SN7100 SSD (1TB) | 1 | 2,190 | 2,190 | CSV assigns it to the Mac Studio; project role/compatibility unresolved |
@@ -47,10 +48,10 @@ from that file, not independently verified supplier specifications.
    note. Confirm whether the GMKtec is that PC or a separate edge machine.
 3. **SSD:** its source note still targets the Mac Studio. Confirm whether it
    belongs in SensorHub and check suitability for the selected Linux PC.
-4. **Network server:** the repository currently uses UG65 embedded network
-   servers and a Mosquitto broker on the application host. ChirpStack and a
-   separate edge broker are not deployed by the current Compose configuration;
-   edge-to-central buffering/replay is not implemented either.
+4. **Network server:** ChirpStack and its supporting services are now included
+   in the NanitesLab Compose stack. UG65 gateways still need ChirpStack-v4 MQTT
+   forwarder configuration and sensors need registering; edge-to-central
+   buffering/replay is not implemented.
 5. **Sensor support:** migration `0003_sensor_inventory.sql` supports all three
    models and stores the CSV quantities (12/4/3) separately from registrations.
    AM107 climate, PIR activity, light, TVOC, and pressure are decoded/stored;

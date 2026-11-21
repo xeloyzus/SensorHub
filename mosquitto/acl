@@ -6,3 +6,17 @@ topic write application/+/device/+/rx
 user sensorhub-ingest
 topic read application/+/device/+/event/up
 topic read application/+/device/+/rx
+
+# ChirpStack consumes gateway frames and publishes application events/downlinks.
+user sensorhub-chirpstack
+topic read eu868/gateway/+/event/+
+topic read eu868/gateway/+/state/+
+topic write eu868/gateway/+/command/#
+topic write application/+/device/+/event/+
+topic read application/+/device/+/command/+
+
+# UG65 ChirpStack-v4 MQTT forwarder: publish gateway events and receive commands.
+user sensorhub-ug65-forwarder
+topic write eu868/gateway/+/event/+
+topic write eu868/gateway/+/state/+
+topic read eu868/gateway/+/command/#

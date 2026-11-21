@@ -1,61 +1,76 @@
 # UG65 gateway configuration
 
-The implemented path uses each UG65's embedded LoRaWAN network server to
-forward uplinks over MQTT to the SensorHub Mosquitto broker on the dedicated
-Linux PC. The updated inventory proposes ChirpStack/MQTT on a GMKtec node;
-ChirpStack is not deployed by the current Compose file. Confirm the server/edge
-layout and configure the gateways for the selected network server before
-changing the working path. See [`../../technical-setup.md`](../../technical-setup.md).
+The recommended path uses ChirpStack v4 in the NanitesLab Compose stack. Each
+UG65 forwards LoRaWAN packets through its built-in ChirpStack-v4 MQTT forwarder
+to the shared Mosquitto broker. ChirpStack consumes those gateway frames and
+publishes application uplinks for NanitesLab's ingest service. The old embedded
+network-server MQTT path can remain active until ChirpStack is provisioned and
+ready for cutover. See [`../../technical-setup.md`](../../technical-setup.md).
 
-## Current MQTT integration (embedded network server)
+## Before switching a gateway
 
-On each gateway (Network Server → MQTT):
+1. If a separate ChirpStack Docker stack is already running, back up its
+   configuration and PostgreSQL data first. The new `chirpstack-postgres-data`
+   volume starts empty; this Compose change does not import existing
+   tenants/devices. Stop the old stack without `docker compose down -v` before
+   starting the merged stack, and ensure only one broker binds host port 1883.
+   Keep the old volumes until the merged ChirpStack data has been checked.
+2. Start the merged Compose stack and open `http://localhost:8081` on the server.
+3. In ChirpStack, create a tenant and application, then create an EU868 device
+   profile with the correct LoRaWAN version and OTAA settings.
+4. Register each sensor using its DevEUI, JoinEUI, and AppKey. Register the
+   same DevEUI in NanitesLab's `devices` table with its building and model.
+5. Confirm the server is reachable from the gateway over a private VPN/tunnel.
+   Set `MQTT_BIND_ADDRESS` in `.env` to the server's private interface and
+   recreate Mosquitto. The default `127.0.0.1` binding is only reachable on the
+   server PC.
 
-| Setting            | Value                             |
-| ------------------ | --------------------------------- |
-| Broker address     | the Linux server's private VPN address or local encrypted-tunnel endpoint |
-| Broker port        | `1883`                            |
-| Protocol           | MQTT (TCP), carried over an encrypted VPN/tunnel |
-| Username           | `sensorhub-gateway`              |
-| Password           | the `MQTT_GATEWAY_PASSWORD` configured on the Linux server |
-| Topic prefix       | `application/1/device/` (or as configured) |
+## UG65 Packet Forwarder settings
 
-The broker's published port binds to loopback by default. Configure a managed
-VPN/tunnel first; set `MQTT_BIND_ADDRESS` to the Linux server's private VPN
-interface if gateways connect over that VPN. Do not expose plaintext port 1883 publicly.
-Authentication does not encrypt passwords or sensor traffic.
+On each gateway, use **Packet Forwarder → General** and add/select **ChirpStack-v4**.
+Set the region ID to `eu868` and configure its MQTT connection:
 
-Ingest defaults to `application/+/device/+/event/up` (ChirpStack v4). For v3,
-set `MQTT_TOPIC=application/+/device/+/rx`. The broker ACL permits both layouts.
-If a gateway uses a different topic, update both `MQTT_TOPIC` and
-`mosquitto/acl` before deploying. Ingest uses username `sensorhub-ingest`
-and a separate password, and has no permission to publish gateway readings.
+| Setting | Value |
+|---|---|
+| MQTT broker address | Server's private VPN/LAN IP or DNS name |
+| MQTT port | `1883` |
+| Username | `sensorhub-ug65-forwarder` |
+| Password | `MQTT_FORWARDER_PASSWORD` from the server's `.env` |
+| Region ID | `eu868` |
+| TLS | Use a private encrypted VPN/tunnel; port 1883 itself is plaintext |
 
-For an existing deployment, add distinct random `MQTT_GATEWAY_PASSWORD` and
-`MQTT_INGEST_PASSWORD` values to `.env`, establish the private network path,
-and update every gateway's credentials before restarting the broker and
-ingestion service. The startup script rebuilds the hashed password file each
-time the broker starts, so changing a secret requires recreating the container.
+Confirm the gateway appears online in ChirpStack and that a test device's
+uplink appears in ChirpStack before disabling its old embedded-network-server
+MQTT transmission. Do not forward the same sensor through both network servers
+after cutover, because that can create duplicate events and competing downlinks.
 
-## Device registration
+## Keep MQTT private
 
-The ingest only stores data for devices that exist in the `devices` table.
-After a sensor joins the network, register it with its DevEUI, e.g.:
+The broker port is bound to loopback by default. Never expose plaintext MQTT
+port 1883 directly to the public internet. Configure the VPN/tunnel and firewall
+first, then use `MQTT_BIND_ADDRESS` to bind only to the private server interface.
+The `sensorhub-ug65-forwarder`, `sensorhub-chirpstack`, and
+`sensorhub-ingest` accounts have separate ACLs and unique passwords. Changing
+one of the MQTT passwords requires recreating the Mosquitto container so its
+hashed password file is rebuilt.
+
+## Legacy embedded network server
+
+If you keep the UG65's embedded network server, its **Network Server → MQTT**
+transmission uses username `sensorhub-gateway` and `MQTT_GATEWAY_PASSWORD`, and
+publishes application uplinks to `application/<app>/device/<device>/event/up`.
+Use this mode or ChirpStack for a given sensor, not both after cutover.
+
+## Device registration in NanitesLab
+
+NanitesLab only stores readings for devices in its `devices` table. Add the
+sensor's actual DevEUI and room assignment after registering it in ChirpStack:
 
 ```sql
 INSERT INTO devices (eui, building_id, type, label, room)
 VALUES ('24e124128b123456', 1, 'am103', 'KEH — Teaching room 1', 'Room 1');
 ```
 
-The DevEUI is printed on the sensor label and shown in the network server's
-device list. Use `/api/buildings` to look up current building IDs by slug;
-active buildings are KEH, EOJ, ARK, and SiS. Library's old ID is preserved
-for historical access. Supported device types are `am103`, `am107`, `ct305`.
-See [`../../docs/sensor-registration.md`](../../docs/sensor-registration.md)
-for AM107 metrics and registration requirements.
-
-## Uplink settings
-
-- Confirm each sensor is set to report every **15 minutes**.
-- Do **not** enable Milesight IoT Cloud — data goes directly to the custom
-  backend via MQTT (IoT Cloud has no export API).
+The DevEUI is printed on the sensor label and shown in ChirpStack. Supported
+device types are `am103`, `am107`, and `ct305`; see
+[`../../docs/sensor-registration.md`](../../docs/sensor-registration.md).

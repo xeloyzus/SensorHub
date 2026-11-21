@@ -15,21 +15,29 @@ See [`technical-setup.md`](technical-setup.md) for the full system design.
 ## Architecture
 
 ```
-[AM103 / AM107 / CT305] --LoRaWAN--> [UG65 gateway] --MQTT--> [Mosquitto]
-                                                            |
-                                                            v
-                                                      [ingest] --decode--> [TimescaleDB]
-                                                                              |
-                                                                              v
-[Signage browsers + mobile] <--HTTPS-- [Caddy] <-- [FastAPI api] <-----------+
+[AM103 / AM107 / CT305] --LoRaWAN--> [UG65: ChirpStack-v4 forwarder]
+                                             |
+                                             | MQTT gateway frames
+                                             v
+                                      [Mosquitto] <--> [ChirpStack]
+                                           |             |       |
+                                           |             |       +-- PostgreSQL + Redis
+                                           |             +-- MQTT application uplinks
+                                           v
+                                      [ingest] --decode--> [TimescaleDB]
+                                                               |
+                                                               v
+[Signage browsers + mobile] <--HTTPS-- [Caddy] <-- [FastAPI api] <+
 ```
 
-This diagram describes the implemented AM103/AM107/CT305 path: gateway MQTT feeds
-the custom backend without Milesight IoT Cloud. The CSV additionally proposes
-ChirpStack and MQTT on a GMKtec edge node; ChirpStack is not included in Compose
-yet, and its placement relative to the dedicated Linux server remains to be
-confirmed. AM107 telemetry and climate analytics are supported; activity-based
-energy methodology and ventilation-control integration remain future work.
+All services run in this Compose project. The UG65 packet forwarder sends
+LoRaWAN frames to ChirpStack over the shared Mosquitto broker; ChirpStack then
+publishes application uplinks back to that broker for NanitesLab ingestion.
+The app's decoder handles the raw Base64 payload, so a ChirpStack codec is not
+required. The previous UG65 embedded-network-server MQTT path remains available
+until ChirpStack is provisioned and you are ready to switch the gateways. AM107
+telemetry and climate analytics are supported; activity-based energy
+methodology and ventilation-control integration remain future work.
 The active building registry covers KEH, EOJ, ARK, and SiS.
 
 ## Repository layout
@@ -78,20 +86,19 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    ```
 
    Enter your hostname for HTTPS, or `http://SERVER_IP` for local HTTP access.
-   A bare IP address is converted to HTTP. The helper generates all four
-   passwords and a matching `DATABASE_URL`; it never replaces an existing
-   `.env`. For an existing deployment, keep its current database password
-   and fill any missing configuration directly in `.env`.
+   A bare IP address is converted to HTTP. The helper generates service
+   credentials and API secrets plus a matching `DATABASE_URL`; it never
+   replaces an existing `.env`. For an existing deployment, keep its current
+   credentials and fill any missing settings in `.env` using fresh, unique
+   values.
 
    The API always reads TimescaleDB populated by the MQTT ingest service.
    Generated telemetry exists only in test fixtures and is excluded from images.
 
-2. **Configure gateway access** over an encrypted VPN or tunnel. MQTT is bound
-   to `127.0.0.1` by default; use `MQTT_BIND_ADDRESS` only for a private VPN
-   interface. Port 1883 does not provide TLS and must not be exposed on the
-   public internet. Configure gateways with username `sensorhub-gateway`
-   and `MQTT_GATEWAY_PASSWORD`; ingestion uses its own read-only account.
-   See [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md).
+2. **Keep MQTT private.** The broker binds to `127.0.0.1` by default. If
+   gateways will connect remotely, set `MQTT_BIND_ADDRESS` to the server's
+   private VPN interface before starting the stack. Port 1883 is plaintext:
+   use an encrypted VPN/tunnel and do not expose it publicly.
 
 3. **Start the Linux stack**. For public HTTPS access, coordinate with UiS IT.
    Point `DOMAIN` at its approved public endpoint and arrange routing/firewall
@@ -119,8 +126,22 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    For local HTTP access, use `http://SERVER_IP/` and the same route paths;
    DNS and a public TLS certificate are not required for that local URL.
 
-4. **Register devices** as sensors join the network (see
-   [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md)):
+4. **Provision ChirpStack before switching gateways.** If you already have a
+   separate ChirpStack Docker stack, back up its configuration and database
+   first; the new ChirpStack database volume starts empty. Stop the old stack
+   without deleting its volumes and make sure only one broker binds host port
+   1883. Then open `http://localhost:8081`, create a tenant and application,
+   then add an EU868
+   device profile and register each sensor with its DevEUI, JoinEUI, and AppKey.
+   Configure the UG65 Packet Forwarder as `ChirpStack-v4`, region `eu868`, MQTT
+   server address as the server's private VPN/LAN address, port `1883`, username
+   `sensorhub-ug65-forwarder`, and password `MQTT_FORWARDER_PASSWORD`. After
+   confirming ChirpStack receives uplinks, disable the old embedded-network-server
+   MQTT transmission for those same sensors to avoid duplicate ingestion. See
+   [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md).
+
+   Register the same DevEUIs in NanitesLab's `devices` table (see
+   [`docs/sensor-registration.md`](docs/sensor-registration.md)):
 
    ```sql
    INSERT INTO devices (eui, building_id, type, label, room)
@@ -308,7 +329,8 @@ Do these things, on a schedule, and it will keep running:
 6. **Live sensor cutover checklist**
 
    - `DATABASE_URL` points at the TimescaleDB service.
-   - `docker compose ps` shows `mosquitto`, `ingest`, `timescaledb`, and `api` running.
+   - `docker compose ps` shows `chirpstack`, `chirpstack-postgres`,
+     `chirpstack-redis`, `mosquitto`, `ingest`, `timescaledb`, and `api` running.
    - `/api/system/status` returns `"mode": "live"` and `"data_source": "timescaledb"`.
    - `/api/buildings/{id}/current` has recent `updated` timestamps after a gateway uplink.
    - Display header shows the sensor source and actual reading freshness.
