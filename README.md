@@ -52,7 +52,7 @@ sensorhub/
 ├── docker-compose.yml      # the whole stack
 ├── Caddyfile               # reverse proxy + automatic HTTPS
 ├── .env.example            # first-run configuration template
-├── scripts/                # generate .env with unique credentials
+├── scripts/                # environment setup and ChirpStack bootstrap
 ├── requirements-dev.txt    # test dependencies
 ├── run.sh                  # convenience launcher (Linux server)
 ├── mosquitto/              # broker config
@@ -95,10 +95,11 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    Enter your hostname for HTTPS, or `http://SERVER_IP` for local HTTP access.
    A bare IP address is converted to HTTP. The helper generates service
    credentials and API secrets plus a matching `DATABASE_URL`; it never
-   replaces an existing `.env`. When `bash run.sh` upgrades an older `.env`,
-   it adds only the new unique `MQTT_BRIDGE_PASSWORD` and preserves existing
-   credentials and database settings. `GATEWAY_BRIDGE_BIND_ADDRESS` defaults
-   to `0.0.0.0`; use a private interface address if preferred.
+   replaces an existing `.env`. On first `bash run.sh`, enter the AppKey that
+   is already shared by all 12 sensors; it is kept in `.env`. When upgrading
+   an older `.env`, the launcher adds missing settings without replacing
+   existing database credentials. `GATEWAY_BRIDGE_BIND_ADDRESS` defaults to
+   `0.0.0.0`; use a private interface address if preferred.
 
    The API always reads TimescaleDB populated by the MQTT ingest service.
    Generated telemetry exists only in test fixtures and is excluded from images.
@@ -123,9 +124,9 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
 
    The launcher checks that Docker, the Compose plugin, and the Docker daemon
    are available before creating `.env`, validates Compose using that explicit
-   file, then starts the services. On first use, Python 3 is also required for
-   environment generation. You can also provision a new installation without
-   the address prompt with
+   file, starts the services, and runs the repeatable ChirpStack bootstrap.
+   Python 3 is required for the environment and ChirpStack provisioning steps.
+   You can also provision a new installation without the address prompt with
    `bash run.sh --domain http://SERVER_IP` (replace the IP).
 
    With a public hostname, Caddy obtains a TLS certificate automatically. The dashboard is served at
@@ -148,35 +149,31 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    Docker brings them back when its daemon starts. The `migrate` job is
    intentionally one-shot and runs when `bash run.sh` is invoked.
 
-4. **Provision ChirpStack before switching gateways.** If you already have a
-   separate ChirpStack Docker stack, back up its configuration and database
-   first; the new ChirpStack database volume starts empty. Stop the old stack
-   without deleting its volumes and make sure only one broker binds host port
-   1883. Then open `http://localhost:8081`, create a tenant and application,
-   then add an EU868
-   device profile and register each sensor with its DevEUI, JoinEUI, and AppKey.
-   Configure the UG65 Packet Forwarder as `Semtech`, with server address as the
-   server's private VPN/LAN address and both uplink and downlink ports set to
-   `1700`. Set the UG65 radio region and channel plan to EU868, matching the
-   ChirpStack `eu868` region. Register the gateway in ChirpStack using the exact
-   Gateway EUI shown by the UG65. Allow UDP 1700 only from the gateway network;
-   Semtech UDP has no authentication or encryption. After
-   confirming ChirpStack receives uplinks, disable the old embedded-network-server
-   MQTT transmission for those same sensors to avoid duplicate ingestion. See
+4. **Let `run.sh` provision ChirpStack.** On first start it asks once for the
+   shared AM103 AppKey, stores it only in the private `.env`, and creates the
+   tenant, application, EU868 profile (LoRaWAN 1.0.3, regional parameters B),
+   three gateways, and 12 OTAA devices. All 12 devices receive that same key.
+   The factory JoinEUI is configured by default; if the sensors' JoinEUI was
+   changed, set `CHIRPSTACK_AM103_JOIN_EUI` in `.env` to that value.
+   NanitesLab's migration registers the matching DevEUIs and room assignments.
+   The bootstrap is repeatable; later `bash run.sh` calls preserve the key and
+   reconcile the ChirpStack records.
+
+   If another ChirpStack stack already runs on this PC, back up its database
+   and configuration, stop it without deleting its volumes, and ensure only
+   one broker binds host port 1883 before starting this combined stack. Its
+   existing ChirpStack database is not imported automatically. Keep the backup
+   until the combined stack has been checked.
+
+   The remaining gateway work is physical network configuration: set each
+   UG65 Packet Forwarder to `Semtech`, enter this server's private VPN/LAN
+   address, and use UDP port `1700` for uplink and downlink. Set the radio
+   region/channel plan to EU868 and check that the gateway EUI matches the
+   values provisioned by the bootstrap. Restrict UDP 1700 to gateway addresses;
+   Semtech UDP has no authentication or encryption. After confirming uplinks,
+   disable the UG65 embedded-network-server MQTT transmission for those same
+   sensors to avoid duplicate ingestion. See
    [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md).
-
-   Register the same DevEUIs in NanitesLab's `devices` table (see
-   [`docs/sensor-registration.md`](docs/sensor-registration.md)):
-
-   ```sql
-   INSERT INTO devices (eui, building_id, type, label, room)
-   VALUES ('24e124128b123456', 1, 'am103', 'KEH — Teaching room 1', 'Room 1');
-   ```
-
-   The active target is 12 AM103 sensors. AM107 and CT305 remain supported for
-   legacy data, but their planned quantities are zero. The source CSV does not
-   contain DevEUIs or room assignments; register each installed AM103 using
-   [`docs/sensor-registration.md`](docs/sensor-registration.md).
 
 ## Database upgrades
 
@@ -187,6 +184,11 @@ Migration `0003_sensor_inventory.sql` adds legacy model capabilities, original
 sensor quantities, EOJ and SiS. Migration `0005_am103_only_deployment.sql`
 sets planned quantities to 12 AM103, 0 AM107, and 0 CT305. Legacy Library devices/history are preserved; that building is
 archived from active discovery, and its existing ID remains directly queryable.
+Migration `0006_am103_device_registry.sql` registers the supplied 12 AM103
+DevEUIs and room assignments automatically; it does not store AppKeys.
+`scripts/provision_chirpstack.py` provisions the corresponding ChirpStack
+resources, uses regional parameters revision B, and keeps the shared AppKey
+inside `.env` rather than source control or the NanitesLab database.
 Migration `0004_reading_integrity.sql` adds finite-value, device-ID, and nonempty
 label/metric checks for new writes, plus query indexes. Existing records are
 preserved. The migration runner records checksums; applied SQL files must not

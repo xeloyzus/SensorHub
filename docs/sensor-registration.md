@@ -2,8 +2,8 @@
 
 The current deployment uses 12 AM103 sensors. The database stores planned and
 registered quantities separately in `sensor_models`; `/api/sensor-models`
-reports both. Register each installed AM103 only after its actual DevEUI,
-building, and room are known.
+reports both. The project registry contains the 12 supplied AM103 DevEUIs,
+buildings, and rooms; `run.sh` creates the same inventory in ChirpStack.
 
 | Type | Planned units | Measurements |
 |---|---:|---|
@@ -21,7 +21,8 @@ They are not registered as measurement sensors in `devices`.
 ## Apply the schema
 
 On the Linux server, start through the launcher. On first use it asks for the
-server address and creates `.env` with generated credentials:
+server address, creates `.env` with generated credentials, and asks once for
+the shared AppKey already programmed into all 12 AM103 sensors:
 
 ```bash
 bash run.sh
@@ -34,29 +35,37 @@ Historical SQL files are recorded with checksums. Add a new migration for
 future changes instead of editing an already-applied file.
 
 Migration 0003 stored the original 12/4/3 source inventory. Migration 0005
-updates the active plan to 12/0/0 and activates KEH, EOJ, ARK, and SiS. It does
-not delete any AM107/CT305 device registrations or readings.
+updates the active plan to 12/0/0 and activates KEH, EOJ, ARK, and SiS. Migration
+0006 registers the supplied 12 AM103 DevEUIs with their building and room
+assignments. The ChirpStack bootstrap provisions those same devices with OTAA
+credentials, the shared AppKey, and an EU868/LoRaWAN 1.0.3 device profile using
+regional parameters revision B. The AppKey is stored only in `.env`, not in
+NanitesLab's database. The default JoinEUI is Milesight's factory value; set
+`CHIRPSTACK_AM103_JOIN_EUI` in `.env` if the sensors were changed to another
+JoinEUI. The migration does not delete AM107/CT305 records or
+readings. These are one-time migrations; later location edits remain intact.
 It archives the old Library record from discovery without changing its ID,
 device associations, or readings. Existing history remains accessible by ID.
 
-## Register a physical device
+## Verify device registration
 
-1. Join the sensor to the selected LoRaWAN network server using its real radio
-   credentials. Keep application keys in the network server's configuration.
-2. Look up building IDs at `/api/buildings`; use slugs rather than assuming IDs
-   are identical between databases.
-3. Insert the real DevEUI, model type, label, and room. For example, replace the
-   illustrative DevEUI and room below with the installed AM103's actual values:
-
-   ```sql
-   INSERT INTO devices (eui, building_id, type, label, room)
-   SELECT '24e124128b123456', id, 'am103', 'EOJ — Teaching room 1', 'Actual room'
-   FROM buildings WHERE slug = 'eoj' AND is_active;
-   ```
-
-4. Confirm a real uplink appears in `/api/buildings/{id}/current`, with recent
+1. The launcher creates all listed sensors in NanitesLab and ChirpStack, with
+   their DevEUIs, JoinEUI, room tags, and shared OTAA AppKey. Do not manually
+   add a second copy of these devices.
+2. Confirm all 12 devices and three gateways appear in ChirpStack. The profile
+   is EU868, LoRaWAN 1.0.3, regional parameters revision B, Class A/OTAA.
+3. After configuring the UG65 Semtech packet forwarders, confirm a real uplink
+   appears in `/api/buildings/{id}/current`, with recent
    `metric_updated` timestamps. `/history` exposes every decoded metric.
    `/api/sensor-models` shows how many devices of each type are registered.
+
+## Automatic registration
+
+On a server with the updated project, `bash run.sh` applies migration 0006,
+starts the services, then reconciles the ChirpStack tenant, profile,
+application, gateways, devices, and OTAA keys. The API token and shared AppKey
+remain in the private `.env` file. Future devices should be added through a
+new migration and the ChirpStack bootstrap inventory together.
 
 ## Legacy AM107 measurement interpretation
 

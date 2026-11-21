@@ -104,6 +104,18 @@ services:
     ports:
       - "${CHIRPSTACK_BIND_ADDRESS:-127.0.0.1}:${CHIRPSTACK_HTTP_PORT:-8081}:8080"
 
+  # ChirpStack v4 exposes gRPC natively. This private adapter lets run.sh
+  # bootstrap ChirpStack resources through its supported REST proxy.
+  chirpstack-rest-api:
+    image: chirpstack/chirpstack-rest-api:4
+    restart: always
+    command: ["--server", "chirpstack:8080", "--bind", "0.0.0.0:8090", "--insecure"]
+    depends_on:
+      chirpstack:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${CHIRPSTACK_REST_API_PORT:-18090}:8090"
+
   timescaledb:
     image: timescale/timescaledb:2.17.2-pg16  # pinned — a future 3.x would be breaking
     restart: always

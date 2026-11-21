@@ -4,8 +4,24 @@ The NanitesLab Compose stack uses ChirpStack v4 with ChirpStack Gateway Bridge.
 Each UG65 forwards LoRaWAN packets using its Semtech UDP packet forwarder to
 the server on UDP port 1700. Gateway Bridge converts those packets to EU868 MQTT
 events for ChirpStack. The old embedded-network-server MQTT path can remain
-active until ChirpStack is provisioned and ready for cutover. See
+active until the provisioned ChirpStack deployment has received and verified
+sensor uplinks. See
 [`../../technical-setup.md`](../../technical-setup.md).
+
+## Automatic ChirpStack setup
+
+`bash run.sh` provisions these gateway records in ChirpStack:
+
+| Gateway EUI | Name |
+|---|---|
+| `24e124fffef3e837` | `ARH_Gateway` |
+| `24e124fffef3e679` | `KEH_Gateway` |
+| `24e124fffef3f713` | `UiS_Gateway` |
+
+It also provisions the tenant, AM103 application, and all 12 devices. The
+device profile is EU868, LoRaWAN 1.0.3, regional parameters revision B, OTAA.
+On first run, it asks for the shared AppKey and stores it in `.env`; the same
+key is assigned to every AM103 in ChirpStack.
 
 ## Before switching a gateway
 
@@ -15,12 +31,8 @@ active until ChirpStack is provisioned and ready for cutover. See
    tenants/devices. Stop the old stack without `docker compose down -v` before
    starting the merged stack, and ensure only one broker binds host port 1883.
    Keep the old volumes until the merged ChirpStack data has been checked.
-2. Start the merged Compose stack and open `http://localhost:8081` on the server.
-3. In ChirpStack, create a tenant and application, then create an EU868 device
-   profile with the correct LoRaWAN version and OTAA settings.
-4. Register each sensor using its DevEUI, JoinEUI, and AppKey. Register the
-   same DevEUI in NanitesLab's `devices` table with its building and model.
-5. Confirm the server is reachable from the gateway over a private VPN/tunnel.
+2. Run `bash run.sh` and wait for its ChirpStack provisioning summary.
+3. Confirm the server is reachable from the gateway over a private VPN/tunnel.
    Allow UDP port `1700` from the gateway IPs to the server. The bridge listener
    is published on all server interfaces by default; set
    `GATEWAY_BRIDGE_BIND_ADDRESS` in `.env` to a private interface IP if needed.
@@ -65,7 +77,7 @@ transmission uses username `sensorhub-gateway` and `MQTT_GATEWAY_PASSWORD`, and
 publishes application uplinks to `application/<app>/device/<device>/event/up`.
 Use this mode or ChirpStack for a given sensor, not both after cutover.
 
-## Device registration in NanitesLab
+## Registering additional devices in NanitesLab
 
 NanitesLab only stores readings for devices in its `devices` table. Add the
 sensor's actual DevEUI and room assignment after registering it in ChirpStack:

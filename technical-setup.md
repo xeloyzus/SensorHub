@@ -164,12 +164,13 @@ access, data refresh, and restart behaviour on the actual displays.
 - [x] Use 12 AM103 sensors; phase AM107 and CT305 out of the active deployment.
 - [ ] Confirm exact TV SKU/size and test its built-in URL feature with the webpage.
 - [x] Add ChirpStack and MQTT integration to the single-host Compose stack.
-- [ ] Provision the ChirpStack application/devices and cut over the UG65 gateways.
+- [x] Automate ChirpStack tenant, EU868 revision B profile, application, gateways, and 12 shared-key OTAA devices.
+- [ ] Configure the UG65 gateways and verify sensor uplinks through ChirpStack.
 - [x] Retain AM107/CT305 legacy decoding and history compatibility; neither is in the active plan.
 - [ ] Define occupancy/light metrics and energy-per-occupied-hour methodology;
   ventilation-control integration is not part of the current application.
 - [x] Add EOJ/SiS to the active database registry; archive Library without deleting its data.
-- [ ] Register actual sensor DevEUIs and room assignments; the CSV contains model quantities only.
+- [x] Register the supplied 12 AM103 DevEUIs and room assignments in NanitesLab and ChirpStack.
 - [ ] Verify LoRaWAN coverage in each intended room, including SiS.
 - [ ] Agree a stable domain and exposed HTTPS route with UiS IT.
 - [ ] Verify the live sensor path, all three screen startups, and backup recovery.
