@@ -27,6 +27,25 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+# Make the selected daemon explicit. Mixing `docker` and `sudo docker` can
+# operate on different daemons (rootless vs. rootful), leaving an old database
+# volume running even after a cleanup on the other daemon.
+echo "Docker context: $(docker context show 2>/dev/null || echo default)"
+docker_data_root="$(docker info --format '{{.DockerRootDir}}')"
+echo "Docker data root: $docker_data_root"
+if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+  sudo_data_root="$(sudo -n docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+  if [ -n "$sudo_data_root" ] && [ "$sudo_data_root" != "$docker_data_root" ]; then
+    sudo_stack="$(sudo -n docker ps -aq --filter label=com.docker.compose.project=sensorhub 2>/dev/null || true)"
+    if [ -n "$sudo_stack" ]; then
+      echo "A SensorHub stack exists on the separate sudo Docker daemon ($sudo_data_root)." >&2
+      echo "This run uses $docker_data_root and would create or clean a different stack." >&2
+      echo "Use one Docker daemon consistently; do not mix 'docker' and 'sudo docker'." >&2
+      exit 1
+    fi
+  fi
+fi
+
 if [ ! -f .env ]; then
   python3 scripts/setup_env.py "$@"
 elif [ "$#" -gt 0 ]; then
@@ -46,10 +65,41 @@ fi
 python3 scripts/provision_chirpstack.py --prepare .env
 
 docker compose --env-file .env config --quiet
-# Keep the private .env authoritative even when the persistent database volume
-# was initialized with an older password. This only changes the DB role secret;
-# it preserves the existing database and readings.
-docker compose --env-file .env up -d timescaledb
+# Keep the private .env authoritative even when persistent database volumes
+# were initialized with older passwords. This changes the DB role secrets but
+# preserves both databases and their contents.
+docker compose --env-file .env up -d timescaledb chirpstack-postgres
 python3 scripts/sync_database_password.py .env
+
+# Ensure ChirpStack's required extension exists before its schema migrations.
+# PostgreSQL only runs /docker-entrypoint-initdb.d scripts on an empty volume;
+# this idempotent check also repairs a previously initialized volume safely.
+chirpstack_pg_id="$(docker compose --env-file .env ps -q chirpstack-postgres)"
+if [ -z "$chirpstack_pg_id" ]; then
+  echo "ChirpStack PostgreSQL container was not created." >&2
+  exit 1
+fi
+for attempt in $(seq 1 120); do
+  pg_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$chirpstack_pg_id" 2>/dev/null || true)"
+  if [ "$pg_health" = healthy ]; then
+    break
+  fi
+  if [ "$pg_health" = unhealthy ] || [ "$pg_health" = exited ] || [ "$pg_health" = dead ]; then
+    echo "ChirpStack PostgreSQL is $pg_health; recent logs:" >&2
+    docker compose --env-file .env logs --no-color --tail=80 chirpstack-postgres >&2 || true
+    exit 1
+  fi
+  if [ "$attempt" -eq 120 ]; then
+    echo "Timed out waiting for ChirpStack PostgreSQL to become healthy; recent logs:" >&2
+    docker compose --env-file .env logs --no-color --tail=80 chirpstack-postgres >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+docker compose --env-file .env exec -T chirpstack-postgres \
+  psql -U chirpstack -d chirpstack -v ON_ERROR_STOP=1 \
+  -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
+echo "ChirpStack PostgreSQL is healthy and pg_trgm is installed."
+
 docker compose --env-file .env up -d --build
 python3 scripts/provision_chirpstack.py .env

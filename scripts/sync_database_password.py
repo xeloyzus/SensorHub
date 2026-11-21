@@ -1,4 +1,4 @@
-"""Synchronize the existing TimescaleDB role password with the private .env."""
+"""Synchronize persistent PostgreSQL role passwords with the private .env."""
 
 from __future__ import annotations
 
@@ -30,19 +30,14 @@ def compose(env_path: Path, *args: str, **kwargs: object) -> subprocess.Complete
     return subprocess.run(command, cwd=Path(__file__).resolve().parents[1], text=True, **kwargs)
 
 
-def synchronize(env_path: Path) -> None:
-    env = read_env(env_path)
-    username = env.get("POSTGRES_USER", "sensorhub")
-    database = env.get("POSTGRES_DB", "sensorhub")
-    password = env.get("POSTGRES_PASSWORD", "")
+def synchronize_role(env_path: Path, service: str, username: str, database: str, password: str, label: str) -> None:
     if not username or not database or not password:
-        raise RuntimeError("POSTGRES_USER, POSTGRES_DB, and POSTGRES_PASSWORD must be set in .env.")
-
+        raise RuntimeError(f"The {label} PostgreSQL username, database, and password must be set.")
     last_error = ""
     for _ in range(120):
         ready = compose(
             env_path,
-            "exec", "-T", "timescaledb", "pg_isready", "-U", username, "-d", database,
+            "exec", "-T", service, "pg_isready", "-U", username, "-d", database,
             capture_output=True,
         )
         if ready.returncode == 0:
@@ -55,14 +50,34 @@ def synchronize(env_path: Path) -> None:
     sql = f"ALTER ROLE {quote_identifier(username)} WITH PASSWORD {quote_literal(password)};\n"
     result = compose(
         env_path,
-        "exec", "-T", "timescaledb", "psql", "-X", "-q", "-U", username,
+        "exec", "-T", service, "psql", "-X", "-q", "-U", username,
         "-d", "postgres", "-v", "ON_ERROR_STOP=1",
         input=sql,
         capture_output=True,
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()[-500:]
-        raise RuntimeError(f"Could not synchronize the TimescaleDB role password: {detail}")
+        raise RuntimeError(f"Could not synchronize the {label} PostgreSQL role password: {detail}")
+
+
+def synchronize(env_path: Path) -> None:
+    env = read_env(env_path)
+    synchronize_role(
+        env_path,
+        "timescaledb",
+        env.get("POSTGRES_USER", "sensorhub"),
+        env.get("POSTGRES_DB", "sensorhub"),
+        env.get("POSTGRES_PASSWORD", ""),
+        "TimescaleDB",
+    )
+    synchronize_role(
+        env_path,
+        "chirpstack-postgres",
+        "chirpstack",
+        "chirpstack",
+        env.get("CHIRPSTACK_POSTGRES_PASSWORD", ""),
+        "ChirpStack",
+    )
 
 
 if __name__ == "__main__":
@@ -72,4 +87,4 @@ if __name__ == "__main__":
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         print(f"Database password setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1)
-    print("TimescaleDB role password synchronized with .env; existing database data preserved.")
+    print("TimescaleDB and ChirpStack PostgreSQL role passwords synchronized with .env; database data preserved.")

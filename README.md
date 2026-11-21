@@ -81,10 +81,12 @@ sensorhub/
 For a local installation without a fixed IP or domain, run `bash run.sh --local`
 on first use. For a server, run `bash run.sh`; it asks for the hostname or
 `http://SERVER_IP`. That single command creates or upgrades `.env`, asks for the
-shared AM103 AppKey if needed, reconciles the TimescaleDB password with its
-persistent volume, builds and starts the stack, applies migrations, and
-provisions ChirpStack. It is also the command to use on later starts. Do not run
-the helper scripts separately.
+shared AM103 AppKey if needed, reconciles both PostgreSQL role passwords with
+their persistent volumes, ensures ChirpStack's required PostgreSQL extension
+exists, builds and starts the stack, applies migrations, and provisions
+ChirpStack. It prints the Docker context and data root it uses so cleanup and
+log commands can target the same daemon. It is also the command to use on later
+starts. Do not run the helper scripts separately.
 
 For local HTTP access, `bash run.sh --local` serves the app at
 `http://localhost:8080`. It also accepts local network host addresses, so the
