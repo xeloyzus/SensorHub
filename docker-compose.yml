@@ -24,7 +24,7 @@ name: sensorhub
 services:
   mosquitto:
     image: eclipse-mosquitto:2
-    restart: unless-stopped
+    restart: always
     ports:
       - "${MQTT_BIND_ADDRESS:-127.0.0.1}:${MQTT_PORT:-1883}:1883"
     entrypoint: ["/bin/sh", "/mosquitto/config/start.sh"]
@@ -43,7 +43,7 @@ services:
 
   chirpstack-gateway-bridge:
     image: chirpstack/chirpstack-gateway-bridge:4
-    restart: unless-stopped
+    restart: always
     command: ["-c", "/etc/chirpstack-gateway-bridge/chirpstack-gateway-bridge.toml"]
     depends_on:
       mosquitto:
@@ -58,7 +58,7 @@ services:
 
   chirpstack-postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_DB: chirpstack
       POSTGRES_USER: chirpstack
@@ -74,7 +74,7 @@ services:
 
   chirpstack-redis:
     image: redis:7-alpine
-    restart: unless-stopped
+    restart: always
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - chirpstack-redis-data:/data
@@ -86,7 +86,7 @@ services:
 
   chirpstack:
     image: chirpstack/chirpstack:4
-    restart: unless-stopped
+    restart: always
     command: ["-c", "/etc/chirpstack"]
     depends_on:
       chirpstack-postgres:
@@ -106,7 +106,7 @@ services:
 
   timescaledb:
     image: timescale/timescaledb:2.17.2-pg16  # pinned — a future 3.x would be breaking
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sensorhub}
       POSTGRES_USER: ${POSTGRES_USER:-sensorhub}
@@ -133,7 +133,7 @@ services:
 
   ingest:
     build: ./ingest
-    restart: unless-stopped
+    restart: always
     depends_on:
       mosquitto:
         condition: service_started
@@ -154,7 +154,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    restart: unless-stopped
+    restart: always
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -183,7 +183,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.3.1  # pinned — a future major would be breaking
-    restart: unless-stopped
+    restart: always
     # Internal debugging only. Bound to loopback: reach it via an SSH tunnel
     # (ssh -L 3000:localhost:3000 user@linux-server) rather than a public URL.
     ports:
@@ -197,7 +197,7 @@ services:
 
   caddy:
     image: caddy:2
-    restart: unless-stopped
+    restart: always
     depends_on:
       api:
         condition: service_healthy

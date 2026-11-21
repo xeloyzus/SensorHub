@@ -136,6 +136,18 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    For local HTTP access, use `http://SERVER_IP/` and the same route paths;
    DNS and a public TLS certificate are not required for that local URL.
 
+   **Start automatically after a Linux server reboot:** enable Docker at boot
+   once, then start the stack detached:
+
+   ```bash
+   sudo systemctl enable --now docker.service containerd.service
+   bash run.sh
+   ```
+
+   The long-running Compose services use Docker's `always` restart policy, so
+   Docker brings them back when its daemon starts. The `migrate` job is
+   intentionally one-shot and runs when `bash run.sh` is invoked.
+
 4. **Provision ChirpStack before switching gateways.** If you already have a
    separate ChirpStack Docker stack, back up its configuration and database
    first; the new ChirpStack database volume starts empty. Stop the old stack

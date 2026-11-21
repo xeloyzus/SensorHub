@@ -126,9 +126,11 @@ private LAN/VPN and configure the firewall accordingly. MQTT remains on loopback
 for host access and private to the Docker network. Grafana is reached through
 an SSH tunnel; TimescaleDB has no published host port.
 
-Disable server sleep, arrange startup after power loss, keep OS/container
-updates maintained, and back up the database to a separate destination.
-Container restart policies restore an existing stack when Docker starts.
+Enable Docker and containerd at boot (`sudo systemctl enable --now
+docker.service containerd.service`), disable server sleep, keep OS/container
+updates maintained, and back up the database to a separate destination. All
+long-running Compose services use Docker's `always` restart policy and return
+when the Docker daemon starts; the migration service remains a one-shot job.
 
 ## 6. Signage setup
 
