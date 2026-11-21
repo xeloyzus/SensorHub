@@ -124,6 +124,7 @@ test("Samsung URL page loads and refreshes using the published display interval"
   assert.ok(scenes.length > 0);
   const label = element();
   const scheduled = [];
+  const historyRanges = [];
   const co2 = { current: 650, unit: "ppm", change_1h: 20, coverage_24h: 1, source_count: 1 };
   const temperature = { current: 21, unit: "°C", change_1h: 0, coverage_24h: 1 };
   const energy = { current_kw: 4 };
@@ -152,7 +153,7 @@ test("Samsung URL page loads and refreshes using the published display interval"
     getSystemStatus: async () => ({ dashboard_url: "https://display.example.test/overview", display_refresh_seconds: 45 }),
     getCampusSummary: async () => summary,
     getMethodology: async () => ({}),
-    getHistory: async () => ({ series: [] }),
+    getHistory: async (_buildingId, range) => { historyRanges.push(range); return { series: [] }; },
     aggregateMetricHistory: () => [],
     renderTimeSeriesChart() {},
   };
@@ -164,6 +165,8 @@ test("Samsung URL page loads and refreshes using the published display interval"
   assert.equal(elements["display-pulse"].dataset.preset, "lobby");
   assert.equal(elements["display-dashboard-url"].textContent, "https://display.example.test/overview");
   assert.equal(scheduled[0].milliseconds, 45_000);
+  assert.ok(historyRanges.length > 0);
+  assert.ok(historyRanges.every(range => range === "1h"));
 
   co2.current = 900;
   await scheduled.shift().callback();
@@ -183,6 +186,7 @@ test("Samsung URL page loads and refreshes using the published display interval"
 
 test("overview recovers after an API outage without losing its page elements", async () => {
   const scheduled = [];
+  const historyRanges = [];
   const elements = new Map();
   const getElementById = id => {
     if (!elements.has(id)) {
@@ -199,9 +203,14 @@ test("overview recovers after an API outage without losing its page elements", a
     getSystemStatus: async () => { if (offline) throw new Error("offline"); return { display_refresh_seconds: 45 }; },
     getCampusSummary: async () => ({
       co2: metric, temperature: metric, energy: { current_kw: null, method: "Waiting for readings" },
-      buildings: [], insights: [], data_quality: { freshness: { status: "unknown", description: "No readings yet" } },
+      buildings: [{
+        building: { id: 1, name: "KEH" }, co2: metric, temperature: metric,
+        energy: { current_kw: null }, recommendations: [],
+        data_quality: { freshness: { status: "stale" } },
+      }], insights: [], data_quality: { freshness: { status: "unknown", description: "No readings yet" } },
     }),
     getMethodology: async () => ({}),
+    getHistory: async (_buildingId, range) => { historyRanges.push(range); return { series: [] }; },
     aggregateMetricHistory: () => [], renderTimeSeriesChart() {},
     setTimeout: callback => { scheduled.push(callback); return 1; },
   };
@@ -219,4 +228,6 @@ test("overview recovers after an API outage without losing its page elements", a
   metric.last_known_age_minutes = 1888;
   await scheduled.shift()();
   assert.match(getElementById("campus-status").textContent, /Last known campus CO2 was 640 ppm/);
+  assert.ok(historyRanges.length > 0);
+  assert.ok(historyRanges.every(range => range === "1h"));
 });

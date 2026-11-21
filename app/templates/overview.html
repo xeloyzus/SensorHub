@@ -59,7 +59,7 @@
     <div class="section-head">
       <div>
         <p class="eyebrow">Trends</p>
-        <h2 id="timeline-title">CO2 over the last 24 hours</h2>
+        <h2 id="timeline-title">Live CO2 readings · last hour</h2>
       </div>
       <p id="timeline-summary" class="chart-summary">The chart summary will appear after data loads.</p>
     </div>
@@ -121,6 +121,6 @@
 {% block scripts %}
 <script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
 <script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
-<script src="/static/js/dashboard.js?v=20261121-last-known-readings"></script>
+<script src="/static/js/dashboard.js?v=20261121-live-hour-readings"></script>
 <script>initCampusPulse();</script>
 {% endblock %}

@@ -153,22 +153,14 @@ async function renderCampusChart(summary, methodology) {
   const bestBuilding = summary.buildings
     .filter((building) => building.co2.source_count > 0 || building.co2.last_known_source_count > 0)
     .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0))[0];
-  let range = "24h";
-  let history = bestBuilding ? await getHistory(bestBuilding.building.id, range) : { series: [] };
-  let data = aggregateMetricHistory(history, "co2", { bucketMinutes: 15 });
-  if (!data.length && bestBuilding) {
-    range = "30d";
-    history = await getHistory(bestBuilding.building.id, range);
-    data = aggregateMetricHistory(history, "co2", { bucketMinutes: 360 });
-  }
-  document.getElementById("timeline-title").textContent = range === "30d"
-    ? "CO2 history over the last 30 days"
-    : "CO2 over the last 24 hours";
+  const history = bestBuilding ? await getHistory(bestBuilding.building.id, "1h") : { series: [] };
+  const data = aggregateMetricHistory(history, "co2", { bucketMinutes: 5 });
+  document.getElementById("timeline-title").textContent = "Live CO2 readings · last hour";
   if (!data.length) {
     renderTimeSeriesChart({ container: "#co2-chart", data: [], metric: { label: "CO2" } });
     document.getElementById("timeline-summary").textContent = bestBuilding
-      ? "No chart history is available in the last 30 days. Last known sensor values remain shown above."
-      : "No sensor readings have been received yet.";
+      ? "No CO2 readings arrived in the last hour. Last known sensor values above are labeled with their age."
+      : "No CO2 sensor readings have been received yet.";
     return;
   }
 
@@ -189,7 +181,7 @@ async function renderCampusChart(summary, methodology) {
   const min = Math.min(...values);
   const max = Math.max(...values);
   document.getElementById("timeline-summary").textContent =
-    `${bestBuilding.building.name} CO2 ranged from ${formatNumber(min)} to ${formatNumber(max)} ppm in the last ${range === "30d" ? "30 days" : "24 hours"}.`;
+    `${bestBuilding.building.name} CO2 ranged from ${formatNumber(min)} to ${formatNumber(max)} ppm in the last hour. The chart refreshes with the live dashboard.`;
 }
 
 async function initCampusPulse() {

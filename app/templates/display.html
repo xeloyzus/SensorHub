@@ -65,7 +65,7 @@
     <div class="scene-head">
       <div>
         <span class="scene-label">Air today</span>
-        <h2 id="scene-air-title">CO2 over 24 hours</h2>
+        <h2 id="scene-air-title">Live CO2 readings · last hour</h2>
       </div>
       <p id="display-chart-summary">Loading chart summary...</p>
     </div>
@@ -147,6 +147,6 @@
 {% block scripts %}
 <script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
 <script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
-<script src="/static/js/display-pulse.js?v=20261121-last-known-readings"></script>
+<script src="/static/js/display-pulse.js?v=20261121-live-hour-readings"></script>
 <script>initDisplayPulse();</script>
 {% endblock %}
