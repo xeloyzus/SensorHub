@@ -46,5 +46,10 @@ fi
 python3 scripts/provision_chirpstack.py --prepare .env
 
 docker compose --env-file .env config --quiet
+# Keep the private .env authoritative even when the persistent database volume
+# was initialized with an older password. This only changes the DB role secret;
+# it preserves the existing database and readings.
+docker compose --env-file .env up -d timescaledb
+python3 scripts/sync_database_password.py .env
 docker compose --env-file .env up -d --build
 python3 scripts/provision_chirpstack.py .env

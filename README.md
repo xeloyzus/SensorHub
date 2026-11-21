@@ -79,30 +79,34 @@ sensorhub/
 ## Quick start
 
 For a local installation without a fixed IP or domain, run `bash run.sh --local`
-on first use. It generates `.env` and serves the app at `http://localhost:8080`.
-It accepts local network host addresses too, so the server is not tied to one
-DHCP address. From a Samsung screen, use the PC's network hostname/current
-address with port 8080; `localhost` on the screen refers to the screen itself.
-For subsequent starts, run `bash run.sh`. Later, change `DOMAIN`, `HTTP_PORT`,
-and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
+on first use. For a server, run `bash run.sh`; it asks for the hostname or
+`http://SERVER_IP`. That single command creates or upgrades `.env`, asks for the
+shared AM103 AppKey if needed, reconciles the TimescaleDB password with its
+persistent volume, builds and starts the stack, applies migrations, and
+provisions ChirpStack. It is also the command to use on later starts. Do not run
+the helper scripts separately.
 
-1. **Configure** — generate `.env` with unique credentials:
+For local HTTP access, `bash run.sh --local` serves the app at
+`http://localhost:8080`. It also accepts local network host addresses, so the
+server is not tied to one DHCP address. From a Samsung screen, use the PC's
+network hostname/current address with port 8080; `localhost` on the screen
+refers to the screen itself. Later, change `DOMAIN`, `HTTP_PORT`, and
+`HTTPS_PORT` in `.env` to use a different endpoint.
+
+1. **Start the Linux stack.** For public HTTPS access, coordinate with UiS IT.
+   Point `DOMAIN` at its approved public endpoint and arrange routing/firewall
+   access for ports 80/443 to Caddy, including certificate validation. A campus
+   private IP alone does not make the URL reachable by public/mobile clients.
+   Docker Engine and the Compose plugin must be installed and running. Run the
+   one command from the project root:
 
    ```bash
-   python3 scripts/setup_env.py
+   bash run.sh
    ```
 
-   Enter your hostname for HTTPS, or `http://SERVER_IP` for local HTTP access.
-   A bare IP address is converted to HTTP. The helper generates service
-   credentials and API secrets plus a matching `DATABASE_URL`; it never
-   replaces an existing `.env`. On first `bash run.sh`, enter the AppKey that
-   is already shared by all 12 sensors; it is kept in `.env`. When upgrading
-   an older `.env`, the launcher adds missing settings without replacing
-   existing database credentials. `GATEWAY_BRIDGE_BIND_ADDRESS` defaults to
-   `0.0.0.0`; use a private interface address if preferred.
-
-   The API always reads TimescaleDB populated by the MQTT ingest service.
-   Generated telemetry exists only in test fixtures and is excluded from images.
+   Python 3 is required by the launcher. For local HTTP on port 8080, use
+   `bash run.sh --local` on first use. You can also avoid the address prompt with
+   `bash run.sh --domain http://SERVER_IP`.
 
 2. **Keep gateway traffic private.** UG65 gateways use Semtech UDP on port
    `1700`, which has no authentication or encryption. Carry it over the private
@@ -111,25 +115,7 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    `DOCKER-USER` chain. Mosquitto stays private on the Docker network and
    loopback; do not expose port `1883`.
 
-3. **Start the Linux stack**. For public HTTPS access, coordinate with UiS IT.
-   Point `DOMAIN` at its approved public endpoint and arrange routing/firewall
-   access for ports 80/443 to Caddy, including certificate validation. A campus
-   private IP alone does not make the URL reachable by public/mobile clients.
-   Then start the stack on the Linux PC (Docker Engine and the Compose plugin
-   are required):
-
-   ```bash
-   bash run.sh
-   ```
-
-   The launcher checks that Docker, the Compose plugin, and the Docker daemon
-   are available before creating `.env`, validates Compose using that explicit
-   file, starts the services, and runs the repeatable ChirpStack bootstrap.
-   Python 3 is required for the environment and ChirpStack provisioning steps.
-   You can also provision a new installation without the address prompt with
-   `bash run.sh --domain http://SERVER_IP` (replace the IP).
-
-   With a public hostname, Caddy obtains a TLS certificate automatically. The dashboard is served at
+3. **Use the services.** With a public hostname, Caddy obtains a TLS certificate automatically. The dashboard is served at
    `https://<DOMAIN>/`, the interactive view at
    `https://<DOMAIN>/overview`, the mobile view at `https://<DOMAIN>/mobile`,
    and the API at `https://<DOMAIN>/api/...`.
@@ -149,7 +135,7 @@ and `HTTPS_PORT` in `.env` and restart the stack to use your chosen endpoint.
    Docker brings them back when its daemon starts. The `migrate` job is
    intentionally one-shot and runs when `bash run.sh` is invoked.
 
-4. **Let `run.sh` provision ChirpStack.** On first start it asks once for the
+4. **ChirpStack provisioning.** On first start, `run.sh` asks once for the
    shared AM103 AppKey, stores it only in the private `.env`, and creates the
    tenant, application, EU868 profile (LoRaWAN 1.0.3, regional parameters B),
    three gateways, and 12 OTAA devices. All 12 devices receive that same key.
