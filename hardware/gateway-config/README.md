@@ -10,7 +10,7 @@ sensor uplinks. See
 
 ## Automatic ChirpStack setup
 
-`bash run.sh` provisions these gateway records in ChirpStack:
+First-time bootstrap creates these missing gateway records in ChirpStack:
 
 | Gateway EUI | Name |
 |---|---|
@@ -18,10 +18,12 @@ sensor uplinks. See
 | `24e124fffef3e679` | `KEH_Gateway` |
 | `24e124fffef3f713` | `UiS_Gateway` |
 
-It also provisions the tenant, AM103 application, and all 12 devices. The
-device profile is EU868, LoRaWAN 1.0.3, regional parameters revision B, OTAA.
-On first run, it asks for the shared AppKey and stores it in `.env`; the same
-key is assigned to every AM103 in ChirpStack.
+It also creates missing tenant, AM103 application, profile and device records.
+The initial profile uses EU868/LoRaWAN/OTAA; verify its regional parameters
+against the sensors. The AppKey in `.env` is used only for newly created devices.
+Ordinary `bash run.sh` calls leave all ChirpStack settings and keys alone.
+Explicit `bash run.sh --bootstrap-chirpstack` adds missing defaults without
+overwriting existing records, including renamed profiles and tenant assignments.
 
 ## Before switching a gateway
 
@@ -31,7 +33,8 @@ key is assigned to every AM103 in ChirpStack.
    tenants/devices. Stop the old stack without `docker compose down -v` before
    starting the merged stack, and ensure only one broker binds host port 1883.
    Keep the old volumes until the merged ChirpStack data has been checked.
-2. Run `bash run.sh` and wait for its ChirpStack provisioning summary.
+2. On first setup, run `bash run.sh`. If `.env` already exists and the default
+   ChirpStack inventory is missing, use `bash run.sh --bootstrap-chirpstack`.
 3. Confirm the server is reachable from the gateway over a private VPN/tunnel.
    Allow UDP port `1700` from the gateway IPs to the server. The bridge listener
    is published on all server interfaces by default; set

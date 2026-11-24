@@ -81,10 +81,11 @@ sensorhub/
 For a local installation without a fixed IP or domain, run `bash run.sh --local`
 on first use. For a server, run `bash run.sh`; it asks for the hostname or
 `http://SERVER_IP`. That single command creates or upgrades `.env`, asks for the
-shared AM103 AppKey if needed, reconciles both PostgreSQL role passwords with
+AM103 AppKey during first-time bootstrap, reconciles both PostgreSQL role passwords with
 their persistent volumes, ensures ChirpStack's required PostgreSQL extension
-exists, builds and starts the stack, applies migrations, and provisions
-ChirpStack. It prints the Docker context and data root it uses so cleanup and
+exists, builds and starts the stack, and applies migrations. When it creates
+`.env` for the first time it also bootstraps missing ChirpStack resources.
+Later starts preserve all ChirpStack UI edits. It prints the Docker context and data root it uses so cleanup and
 log commands can target the same daemon. It is also the command to use on later
 starts. Do not run the helper scripts separately.
 
@@ -139,13 +140,23 @@ refers to the screen itself. Later, change `DOMAIN`, `HTTP_PORT`, and
 
 4. **ChirpStack provisioning.** On first start, `run.sh` asks once for the
    shared AM103 AppKey, stores it only in the private `.env`, and creates the
-   tenant, application, EU868 profile (LoRaWAN 1.0.3, regional parameters B),
-   three gateways, and 12 OTAA devices. All 12 devices receive that same key.
+   tenant, application, EU868 profile, three gateways, and 12 OTAA devices.
+   Only newly created devices receive the bootstrap key.
    The factory JoinEUI is configured by default; if the sensors' JoinEUI was
    changed, set `CHIRPSTACK_AM103_JOIN_EUI` in `.env` to that value.
    NanitesLab's migration registers the matching DevEUIs and room assignments.
-   The bootstrap is repeatable; later `bash run.sh` calls preserve the key and
-   reconcile the ChirpStack records.
+   Ordinary `bash run.sh` calls do not run ChirpStack provisioning or ask for
+   the AppKey. Names, tenant/application assignments, profile settings/codecs,
+   gateway settings, disabled devices, tags, JoinEUIs and per-device keys remain
+   administrator-owned. Deleting a resource in ChirpStack does not cause the
+   next restart to recreate it.
+
+   To explicitly add missing default resources (including on installations
+   where `.env` was created manually), run `bash run.sh --bootstrap-chirpstack`.
+   This creates missing resources only; it never updates existing resources or
+   their keys. Bootstrap saves parent IDs in `.env` and can adopt an existing
+   renamed deployment by DevEUI/gateway EUI. To change an existing codec or
+   profile, edit it deliberately in ChirpStack.
 
    If another ChirpStack stack already runs on this PC, back up its database
    and configuration, stop it without deleting its volumes, and ensure only
@@ -186,7 +197,7 @@ transactional and checksum-verified; installed migrations must not be edited.
 See [`docs/database-schema.md`](docs/database-schema.md) for the ER diagram,
 constraints, permissions, reset semantics, and DBeaver connection instructions.
 `scripts/provision_chirpstack.py` provisions the corresponding ChirpStack
-resources, uses regional parameters revision B, and keeps the shared AppKey
+resources only during first-time/explicit bootstrap, and keeps the initial AppKey
 inside `.env` rather than source control or the NanitesLab database.
 
 If Compose reports missing `DOMAIN`, database, Grafana, or MQTT passwords,

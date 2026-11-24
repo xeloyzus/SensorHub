@@ -164,7 +164,7 @@ access, data refresh, and restart behaviour on the actual displays.
 - [x] Use 12 AM103 sensors; phase AM107 and CT305 out of the active deployment.
 - [ ] Confirm exact TV SKU/size and test its built-in URL feature with the webpage.
 - [x] Add ChirpStack and MQTT integration to the single-host Compose stack.
-- [x] Automate ChirpStack tenant, EU868 revision B profile, application, gateways, and 12 shared-key OTAA devices.
+- [x] Bootstrap missing ChirpStack tenant, EU868 profile, application, gateways and OTAA devices on first setup; preserve administrator changes on ordinary starts.
 - [ ] Configure the UG65 gateways and verify sensor uplinks through ChirpStack.
 - [x] Retain AM107/CT305 legacy decoding and history compatibility; neither is in the active plan.
 - [ ] Define occupancy/light metrics and energy-per-occupied-hour methodology;

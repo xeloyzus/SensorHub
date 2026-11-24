@@ -39,8 +39,8 @@ separate. See [database design](database-schema.md) for reset semantics.
 The baseline uses the active plan 12/0/0, activates KEH, EOJ, ARK and SiS, and
 registers the supplied 12 AM103 DevEUIs with their building and room assignments.
 The ChirpStack bootstrap provisions those same devices with OTAA
-credentials, the shared AppKey, and an EU868/LoRaWAN 1.0.3 device profile using
-regional parameters revision B. The AppKey is stored only in `.env`, not in
+credentials, an initial AppKey for new devices, and an EU868/LoRaWAN device profile.
+Existing devices/profiles/keys are left intact. The initial AppKey is stored only in `.env`, not in
 NanitesLab's database. The default JoinEUI is Milesight's factory value; set
 `CHIRPSTACK_AM103_JOIN_EUI` in `.env` if the sensors were changed to another
 JoinEUI. Library is initially inactive. AM107/CT305 models remain available with
@@ -49,11 +49,11 @@ and history cannot be deleted accidentally. DevEUI and model are immutable.
 
 ## Verify device registration
 
-1. The launcher creates all listed sensors in NanitesLab and ChirpStack, with
+1. First-time bootstrap creates missing listed sensors in ChirpStack, with
    their DevEUIs, JoinEUI, room tags, and shared OTAA AppKey. Do not manually
    add a second copy of these devices.
-2. Confirm all 12 devices and three gateways appear in ChirpStack. The profile
-   is EU868, LoRaWAN 1.0.3, regional parameters revision B, Class A/OTAA.
+2. Confirm all 12 devices and three gateways appear in ChirpStack. Verify their
+   profile's EU868/LoRaWAN/regional parameters match the actual sensor configuration.
 3. After configuring the UG65 Semtech packet forwarders, confirm a real uplink
    appears in `/api/buildings/{id}/current`, with recent
    `metric_updated` timestamps. `/history` exposes every decoded metric.
@@ -61,10 +61,15 @@ and history cannot be deleted accidentally. DevEUI and model are immutable.
 
 ## Automatic registration
 
-On a new server, `bash run.sh` installs the complete baseline,
-starts the services, then reconciles the ChirpStack tenant, profile,
-application, gateways, devices, and OTAA keys. The API token and shared AppKey
-remain in the private `.env` file. Existing pre-baseline installations use the
+When `.env` is created for the first time, `bash run.sh` also bootstraps missing
+ChirpStack resources. Ordinary later starts never run the ChirpStack bootstrap,
+so UI changes and intentional deletions persist. To add missing defaults
+explicitly, run `bash run.sh --bootstrap-chirpstack`; existing settings and keys
+are still never overwritten. Parent IDs saved in `.env` and existing device/
+gateway EUIs preserve identity after renames. Profile/codec/key updates are
+deliberate administrative edits in ChirpStack, not startup actions.
+The API token and initial AppKey remain in the private `.env` file.
+Existing pre-baseline installations use the
 explicit reset described above. Future devices can be registered by an
 administrator in `devices` and the ChirpStack inventory; the ingestion account
 does not have permission to create devices or edit catalogs.

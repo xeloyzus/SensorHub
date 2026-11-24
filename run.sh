@@ -5,10 +5,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 reset_database=false
+bootstrap_chirpstack=false
 setup_args=()
 for argument in "$@"; do
   if [ "$argument" = "--reset-database" ]; then
     reset_database=true
+  elif [ "$argument" = "--bootstrap-chirpstack" ]; then
+    bootstrap_chirpstack=true
   else
     setup_args+=("$argument")
   fi
@@ -58,6 +61,7 @@ fi
 
 if [ ! -f .env ]; then
   python3 scripts/setup_env.py "${setup_args[@]}"
+  bootstrap_chirpstack=true
 elif [ "${#setup_args[@]}" -gt 0 ]; then
   echo ".env already exists. Edit its DOMAIN directly; existing secrets are preserved." >&2
   exit 1
@@ -67,9 +71,11 @@ fi
 # The helper preserves existing settings and creates only missing secrets.
 python3 scripts/ensure_env.py .env
 
-# Collect and validate the shared AM103 OTAA credential before starting
-# services. It is stored only in the private, git-ignored .env file.
-python3 scripts/provision_chirpstack.py --prepare .env
+# Existing installations are administered through ChirpStack. Only first setup
+# or explicit bootstrap needs the shared key; ordinary restarts never apply it.
+if [ "$bootstrap_chirpstack" = true ]; then
+  python3 scripts/provision_chirpstack.py --prepare .env
+fi
 
 docker compose --env-file .env config --quiet
 # Stop application clients before changing their schema. ChirpStack is separate.
@@ -118,4 +124,11 @@ else
   docker compose --env-file .env run --rm --no-deps migrate
 fi
 docker compose --env-file .env up -d --build
-python3 scripts/provision_chirpstack.py .env
+if [ "$bootstrap_chirpstack" = true ]; then
+  if ! python3 scripts/provision_chirpstack.py .env; then
+    echo "ChirpStack bootstrap did not finish. Retry with bash run.sh --bootstrap-chirpstack; existing resources are preserved." >&2
+    exit 1
+  fi
+else
+  echo "ChirpStack configuration preserved. To create missing defaults explicitly, use bash run.sh --bootstrap-chirpstack."
+fi

@@ -1,4 +1,4 @@
-"""Idempotently provision the NanitesLab ChirpStack v4 resources."""
+"""Create missing ChirpStack v4 resources without overwriting existing settings."""
 
 from __future__ import annotations
 
@@ -54,7 +54,8 @@ def read_env(path: Path) -> tuple[str, dict[str, str]]:
 def write_env(path: Path, text: str) -> None:
     descriptor, temporary = tempfile.mkstemp(prefix=".env.", dir=path.parent)
     try:
-        os.fchmod(descriptor, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
         os.replace(temporary, path)
@@ -84,7 +85,7 @@ def ensure_app_key(env_path: Path) -> str:
         if not sys.stdin.isatty():
             raise RuntimeError("Set CHIRPSTACK_AM103_APP_KEY in .env (32 hex characters) before running non-interactively.")
         while True:
-            app_key = getpass.getpass("Shared AM103 AppKey (32 hex characters; applied to all 12 sensors): ").strip()
+            app_key = getpass.getpass("AM103 AppKey for newly created devices (32 hex characters; existing device keys are preserved): ").strip()
             if re.fullmatch(r"[0-9a-fA-F]{32}", app_key):
                 break
             print("The AppKey must be exactly 32 hexadecimal characters.", file=sys.stderr)
@@ -183,8 +184,43 @@ def find_by_name(api: ChirpStackAPI, path: str, query: dict[str, str], name: str
     return next((item for item in response.get("result", []) if item.get("name") == name), None)
 
 
-def provision(api: ChirpStackAPI, app_key: str, join_eui: str) -> None:
-    tenant = find_by_name(api, "/tenants", {}, TENANT_NAME)
+RESOURCE_ID_KEYS = {
+    "tenant": "CHIRPSTACK_BOOTSTRAP_TENANT_ID",
+    "profile": "CHIRPSTACK_BOOTSTRAP_PROFILE_ID",
+    "application": "CHIRPSTACK_BOOTSTRAP_APPLICATION_ID",
+}
+
+
+def existing_resource(api: ChirpStackAPI, path: str, key: str, resource_id: str | None) -> dict | None:
+    """Resolve stable IDs first so UI renames do not create duplicate parents."""
+    if not resource_id:
+        return None
+    resource = api.request("GET", f"{path}/{resource_id}", allow_missing=True).get(key)
+    return {**resource, "id": resource_id} if resource else None
+
+
+def provision(api: ChirpStackAPI, app_key: str, join_eui: str,
+              resource_ids: dict[str, str] | None = None) -> dict[str, str]:
+    resource_ids = resource_ids or {}
+    # DevEUIs / gateway EUIs survive UI renames, moves and settings edits.
+    devices = {eui: api.request("GET", f"/devices/{eui}", allow_missing=True).get("device")
+               for eui, *_ in DEVICES}
+    gateways = {eui: api.request("GET", f"/gateways/{eui}", allow_missing=True).get("gateway")
+                for eui, _ in GATEWAYS}
+    device_hint = next((device for device in devices.values() if device), {})
+    gateway_hint = next((gateway for gateway in gateways.values() if gateway), {})
+    application = existing_resource(api, "/applications", "application",
+        resource_ids.get("application") or device_hint.get("applicationId"))
+    profile = existing_resource(api, "/device-profiles", "deviceProfile",
+        resource_ids.get("profile") or device_hint.get("deviceProfileId"))
+    tenant_hint = (resource_ids.get("tenant")
+        or (application or {}).get("tenantId") or (profile or {}).get("tenantId")
+        or gateway_hint.get("tenantId"))
+    tenant = existing_resource(api, "/tenants", "tenant", tenant_hint)
+    if tenant is None:
+        tenant = find_by_name(api, "/tenants", {}, TENANT_NAME)
+    created_count = 0
+    preserved_count = sum(bool(device) for device in devices.values()) + sum(bool(gateway) for gateway in gateways.values())
     if tenant is None:
         created = api.request("POST", "/tenants", {"tenant": {
             "name": TENANT_NAME,
@@ -192,25 +228,28 @@ def provision(api: ChirpStackAPI, app_key: str, join_eui: str) -> None:
             "canHaveGateways": True,
         }})
         tenant_id = created.get("id") or created.get("tenantId")
+        created_count += 1
     else:
         tenant_id = tenant["id"]
+        preserved_count += 1
     if not tenant_id:
         raise RuntimeError("ChirpStack did not return a tenant ID.")
-    tenant_details = api.request("GET", f"/tenants/{tenant_id}").get("tenant", {})
-    if not tenant_details.get("canHaveGateways", False):
-        tenant_details["canHaveGateways"] = True
-        tenant_details.pop("id", None)  # the tenant ID is carried in the URL
-        api.request("PUT", f"/tenants/{tenant_id}", {"tenant": tenant_details})
+    # A saved parent mismatch needs an explicit administrator decision; never
+    # move existing resources or create new devices under incompatible parents.
+    for resource in (application, profile):
+        if resource and resource.get("tenantId") != tenant_id:
+            raise RuntimeError("Saved ChirpStack bootstrap parents belong to different tenants; correct the bootstrap IDs in .env before retrying.")
 
-    profile = find_by_name(api, "/device-profiles", {"tenantId": tenant_id}, PROFILE_NAME)
+    if profile is None:
+        profile = find_by_name(api, "/device-profiles", {"tenantId": tenant_id}, PROFILE_NAME)
     profile_data = {
         "tenantId": tenant_id,
         "name": PROFILE_NAME,
-        "description": "Milesight AM103; EU868; LoRaWAN 1.0.3; Regional Parameters revision B; OTAA.",
+        "description": "Milesight AM103; EU868; LoRaWAN 1.0.3; OTAA.",
         "region": "EU868",
         "regionConfigId": "eu868",
         "macVersion": "LORAWAN_1_0_3",
-        "regParamsRevision": "B",
+        "regParamsRevision": "A",
         "supportsOtaa": True,
         "supportsClassB": False,
         "supportsClassC": False,
@@ -221,43 +260,41 @@ def provision(api: ChirpStackAPI, app_key: str, join_eui: str) -> None:
     if profile is None:
         created = api.request("POST", "/device-profiles", {"deviceProfile": profile_data})
         profile_id = created.get("id")
+        created_count += 1
     else:
         profile_id = profile["id"]
-        # ChirpStack takes the profile ID from the path for updates.
-        api.request("PUT", f"/device-profiles/{profile_id}", {"deviceProfile": profile_data})
+        preserved_count += 1
     if not profile_id:
         raise RuntimeError("ChirpStack did not return a device profile ID.")
 
-    application = find_by_name(api, "/applications", {"tenantId": tenant_id}, APPLICATION_NAME)
+    if application is None:
+        application = find_by_name(api, "/applications", {"tenantId": tenant_id}, APPLICATION_NAME)
     if application is None:
         created = api.request("POST", "/applications", {"application": {"tenantId": tenant_id, "name": APPLICATION_NAME, "description": "Milesight AM103 sensors for NanitesLab"}})
         application_id = created.get("id")
+        created_count += 1
     else:
         application_id = application["id"]
+        preserved_count += 1
     if not application_id:
         raise RuntimeError("ChirpStack did not return an application ID.")
 
     for gateway_id, name in GATEWAYS:
-        existing_gateway = api.request("GET", f"/gateways/{gateway_id}", allow_missing=True)
-        existing_gateway_data = existing_gateway.get("gateway", {})
-        # ChirpStack validates this field as strictly positive. Preserve an
-        # existing positive priority; older/default records may report zero.
-        downlink_priority = max(1, int(existing_gateway_data.get("downlinkPriority") or 1))
+        if gateways[gateway_id]:
+            continue
         gateway = {
             "gatewayId": gateway_id,
             "tenantId": tenant_id,
             "name": name,
             "description": name,
-            "downlinkPriority": downlink_priority,
+            "downlinkPriority": 1,
         }
-        if existing_gateway_data:
-            # The gateway ID is supplied by the URL path on updates.
-            update = {key: value for key, value in gateway.items() if key != "gatewayId"}
-            api.request("PUT", f"/gateways/{gateway_id}", {"gateway": update})
-        else:
-            api.request("POST", "/gateways", {"gateway": gateway})
+        api.request("POST", "/gateways", {"gateway": gateway})
+        created_count += 1
 
     for dev_eui, name, building, room in DEVICES:
+        if devices[dev_eui]:
+            continue  # Includes profile/application assignment, disable state and OTAA keys.
         device_fields = {
             "joinEui": join_eui,
             "name": name,
@@ -267,23 +304,16 @@ def provision(api: ChirpStackAPI, app_key: str, join_eui: str) -> None:
             "skipFcntCheck": False,
             "tags": {"building": building, "room": room, "model": "AM103"},
         }
-        existing = api.request("GET", f"/devices/{dev_eui}", allow_missing=True)
-        if existing.get("device"):
-            # The DevEUI is supplied by the URL path on updates.
-            api.request("PUT", f"/devices/{dev_eui}", {"device": device_fields})
-        else:
-            api.request("POST", "/devices", {"device": {"devEui": dev_eui, **device_fields}})
+        api.request("POST", "/devices", {"device": {"devEui": dev_eui, **device_fields}})
+        created_count += 1
         key_path = f"/devices/{dev_eui}/keys"
-        # ChirpStack's REST schema carries the DevEUI in the URL for key
-        # create/update; the request body only accepts the key fields.
+        # Set keys only on a device created in this invocation. Existing
+        # per-device keys may intentionally differ from the bootstrap AppKey.
         keys = {"deviceKeys": {"nwkKey": app_key}}
-        current_keys = api.request("GET", key_path, allow_missing=True)
-        if current_keys:
-            api.request("PUT", key_path, keys)
-        else:
-            api.request("POST", key_path, keys)
+        api.request("POST", key_path, keys)
 
-    print(f"ChirpStack provisioned: 1 tenant, 1 AM103 profile (EU868 / LoRaWAN 1.0.3 / revision B), 1 application, {len(GATEWAYS)} gateways, {len(DEVICES)} OTAA devices using the same AppKey.")
+    print(f"ChirpStack bootstrap: created {created_count} resources; preserved {preserved_count} existing resources and their settings/keys.")
+    return {"tenant": tenant_id, "profile": profile_id, "application": application_id}
 
 
 def main() -> int:
@@ -310,7 +340,11 @@ def main() -> int:
             token = create_api_token(env_path)
             api = ChirpStackAPI(env.get("CHIRPSTACK_REST_API_PORT", "18090"), token)
             api.wait_ready()
-        provision(api, app_key, join_eui)
+        resource_ids = {kind: env.get(key, "") for kind, key in RESOURCE_ID_KEYS.items()}
+        resolved = provision(api, app_key, join_eui, resource_ids)
+        for kind, resource_id in resolved.items():
+            if env.get(RESOURCE_ID_KEYS[kind]) != resource_id:
+                set_env_value(env_path, RESOURCE_ID_KEYS[kind], resource_id)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         print(f"ChirpStack setup failed: {exc}", file=sys.stderr)
         return 1
