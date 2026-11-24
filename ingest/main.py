@@ -19,15 +19,15 @@ import os
 import re
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import paho.mqtt.client as mqtt
 import psycopg
 
 if __package__:
-    from .decoders import decode
+    from .decoders import decode_samples
 else:
-    from decoders import decode
+    from decoders import decode_samples
 
 log = logging.getLogger("ingest")
 
@@ -35,6 +35,8 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 MQTT_HOST = os.environ.get("MQTT_HOST", "mosquitto")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "application/+/device/+/event/up")
+MAX_SAMPLE_AGE = timedelta(days=88)  # Inside the baseline's 89-day aggregate refresh.
+MAX_FUTURE_SKEW = timedelta(minutes=5)
 
 
 class Database:
@@ -153,7 +155,7 @@ def parse_message(payload: bytes) -> tuple[str, bytes, datetime]:
     if ts.tzinfo is None:
         raise ValueError("time must include a timezone")
     ts = ts.astimezone(timezone.utc)
-    if (ts - datetime.now(timezone.utc)).total_seconds() > 300:
+    if ts - datetime.now(timezone.utc) > MAX_FUTURE_SKEW:
         raise ValueError("time is more than five minutes in the future")
     frame = base64.b64decode(raw, validate=True)
     if not frame:
@@ -230,7 +232,7 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
     try:
         eui, frame, ts = parse_message(msg.payload)
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
-        log.debug("Skipping non-uplink message on %s: %s", msg.topic, exc)
+        log.warning("Rejected uplink on %s: %s", msg.topic, exc)
         return
 
     try:
@@ -247,21 +249,29 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
 
     device_id, device_type = device
     try:
-        metrics = decode(frame, device_type)
+        samples = decode_samples(frame, device_type, ts)
     except ValueError as exc:
         log.warning("Decode skipped for %s (%s): %s", eui, device_type, exc)
         return
-    if not metrics:
-        log.debug("No telemetry decoded for %s on %s", eui, msg.topic)
+    if not samples:
+        log.info("No supported measurements decoded for %s (%s, %d payload bytes)", eui, device_type, len(frame))
         return
 
-    rows = [(ts, device_id, metric, value) for metric, value in metrics.items()]
+    now = datetime.now(timezone.utc)
+    rows = []
+    for sample_time, metrics in samples:
+        if not now - MAX_SAMPLE_AGE <= sample_time <= now + MAX_FUTURE_SKEW:
+            log.warning("Skipped sample for %s at %s: outside the 88-day/five-minute ingestion window", eui, sample_time.isoformat())
+            continue
+        rows.extend((sample_time, device_id, metric, value) for metric, value in metrics.items())
+    if not rows:
+        return
 
     try:
         db.execute_in_transaction(_insert_rows(rows))
-    except (psycopg.IntegrityError, psycopg.DataError):
+    except (psycopg.IntegrityError, psycopg.DataError) as exc:
         registry.clear()
-        log.warning("Database rejected telemetry for %s; checking device registration and payload is required", eui)
+        log.warning("Database rejected telemetry for %s (SQLSTATE %s): %s", eui, exc.sqlstate, exc.diag.message_primary)
         return
     except psycopg.Error:
         log.exception("Insert failed for device %s after retries", device_id)
@@ -279,7 +289,15 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
         except psycopg.Error:
             pass
 
-    log.info("%s (%s): %s", eui, device_type, metrics)
+    log.info("%s (%s): processed %d metric rows across %d sample timestamps; newest=%s", eui, device_type,
+             len(rows), len({row[0] for row in rows}), max(row[0] for row in rows).isoformat())
+
+
+def on_subscribe(client, userdata, mid, reason_code_list, properties) -> None:
+    if any(code.is_failure for code in reason_code_list):
+        log.error("MQTT subscription rejected for topic %s: %s", MQTT_TOPIC, reason_code_list)
+    else:
+        log.info("MQTT subscription confirmed for topic %s", MQTT_TOPIC)
 
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties) -> None:
@@ -327,6 +345,7 @@ def main() -> None:
         raise RuntimeError("MQTT_USERNAME and MQTT_PASSWORD are required")
     client.username_pw_set(username, password)
     client.on_connect = on_connect
+    client.on_subscribe = on_subscribe
     client.on_message = on_message
     # Reconnect with backoff if the broker is temporarily unreachable.
     client.reconnect_delay_set(min_delay=1, max_delay=30)

@@ -3,6 +3,8 @@
 ``decode`` dispatches on the device type registered in the database.
 """
 
+from datetime import datetime
+
 from . import am103_decoder, am107_decoder, ct305_decoder
 
 _DECODERS = {
@@ -22,3 +24,11 @@ def decode(payload: bytes, device_type: str) -> dict[str, float]:
     if decoder is None:
         raise ValueError(f"unknown device type: {device_type!r}")
     return decoder(payload)
+
+
+def decode_samples(payload: bytes, device_type: str, event_time: datetime) -> list[tuple[datetime, dict[str, float]]]:
+    """Decode live and timestamped historical samples without changing their age."""
+    if device_type == "am103":
+        return am103_decoder.decode_samples(payload, event_time)
+    metrics = decode(payload, device_type)
+    return [(event_time, metrics)] if metrics else []

@@ -80,6 +80,82 @@ def api(path):
         return json.load(response)
 
 
+def verify_timestamped_report_freshness(db):
+    """Reproduce two 31-hour stale sensors plus ten missing, then deliver samples.
+
+    This archived synthetic building is never included in campus summaries.
+    Everything runs inside the guarded disposable integration database.
+    """
+    building_id = db.execute(
+        "INSERT INTO buildings (name,slug,is_active) VALUES "
+        "('Timestamped regression','timestamped-regression',FALSE) "
+        "ON CONFLICT (slug) DO UPDATE SET is_active=FALSE RETURNING id"
+    ).fetchone()[0]
+    devices = []
+    for index in range(12):
+        eui = f"24e12412{256+index:08x}"
+        device_id = db.execute(
+            "INSERT INTO devices (eui,building_id,type,label) VALUES (%s,%s,'am103',%s) "
+            "ON CONFLICT (eui) DO UPDATE SET is_active=TRUE RETURNING id",
+            (eui, building_id, f"Timestamped regression {index+1}"),
+        ).fetchone()[0]
+        devices.append((eui, device_id))
+    ids = [device_id for _, device_id in devices]
+    db.execute("DELETE FROM readings WHERE device_id=ANY(%s)", (ids,))
+    now = datetime.now(timezone.utc)
+    old_time = (now-timedelta(minutes=1884)).replace(microsecond=0)
+    try:
+        for _, device_id in devices[:2]:
+            for metric, value in (("co2", 894), ("temperature", 19.1), ("humidity", 45)):
+                db.execute("INSERT INTO readings (time,device_id,metric,value) VALUES (%s,%s,%s,%s)",
+                           (old_time, device_id, metric, value))
+        path = f"/api/buildings/{building_id}/summary"
+        before = api(path)
+        assert before['data_quality']['active_sensors'] == 0
+        assert before['data_quality']['stale_sensors'] == 2
+        assert before['data_quality']['missing_sensors'] == 10
+        assert before['data_quality']['freshness']['age_minutes'] == 1884
+        assert before['data_quality']['freshness']['metric'] == 'co2'
+        assert before['data_quality']['freshness']['device_label'].startswith('Timestamped regression')
+
+        def packet(eui, sample_time, event_time):
+            frame = (b'\x20\xce' + int(sample_time.timestamp()).to_bytes(4, 'little')
+                     + bytes.fromhex('e1005abc02'))
+            return json.dumps({'deviceInfo': {'devEui': eui}, 'time': event_time.isoformat(),
+                               'data': base64.b64encode(frame).decode()})
+
+        sample_time = (now-timedelta(minutes=5)).replace(microsecond=0)
+        with client('sensorhub-gateway', GATEWAY_PASSWORD) as gateway:
+            def deliver_current_samples():
+                for eui, _ in devices[:2]:
+                    publish(gateway, f'application/1/device/{eui}/event/up', packet(eui, sample_time, now))
+                return api(path)['data_quality']['active_sensors'] == 2
+            eventually(deliver_current_samples, 'Timestamped AM103 measurements did not clear false stale status', timeout=35)
+            after = api(path)
+            assert after['data_quality']['stale_sensors'] == 0
+            assert after['data_quality']['missing_sensors'] == 10
+            assert after['co2']['current'] == 700
+            assert after['temperature']['current'] == 22.5
+            # Re-delivering the same sample in a later network event is idempotent.
+            for eui, _ in devices[:2]:
+                publish(gateway, f'application/1/device/{eui}/event/up', packet(eui, sample_time, now+timedelta(seconds=1)))
+            # An old replay is retained as history without becoming current data.
+            history_time = (now-timedelta(days=2)).replace(microsecond=0)
+            eui, device_id = devices[0]
+            publish(gateway, f'application/1/device/{eui}/event/up', packet(eui, history_time, now))
+            eventually(lambda: db.execute('SELECT count(*) FROM readings WHERE device_id=%s AND time=%s',
+                       (device_id, history_time)).fetchone()[0] == 3, 'Historical sample was not persisted')
+        for _, device_id in devices[:2]:
+            assert db.execute('SELECT count(*) FROM readings WHERE device_id=%s AND time=%s',
+                              (device_id, sample_time)).fetchone()[0] == 3
+            assert db.execute('SELECT max(time) FROM readings WHERE device_id=%s', (device_id,)).fetchone()[0] == sample_time
+        assert api(path)['data_quality']['stale_sensors'] == 0
+        print('PASS: reproduced 1884-minute stale summary; timestamped MQTT reports clear it and old replays keep their real age', flush=True)
+    finally:
+        db.execute('DELETE FROM readings WHERE device_id=ANY(%s)', (ids,))
+        db.execute('UPDATE devices SET is_active=FALSE WHERE id=ANY(%s)', (ids,))
+
+
 def run():
     with psycopg.connect(os.environ["ADMIN_DATABASE_URL"], autocommit=True) as db:
         if db.execute("SELECT current_database()").fetchone()[0] != "sensorhub_integration":
@@ -87,6 +163,7 @@ def run():
         assert db.execute("SELECT extversion FROM pg_extension WHERE extname='timescaledb'").fetchone()
         assert db.execute("SELECT to_regclass('readings_hourly')").fetchone()[0]
         assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        verify_timestamped_report_freshness(db)
         # Keep deployment registry rows, while isolating these smoke-test sensors
         # from the seeded active fleet. This is a disposable test database.
         db.execute("UPDATE devices SET is_active = FALSE WHERE label NOT LIKE 'Integration %'")

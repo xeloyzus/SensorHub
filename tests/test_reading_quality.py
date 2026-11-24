@@ -59,6 +59,22 @@ def test_new_temperature_does_not_freshen_old_co2(monkeypatch):
     assert result.co2.last_known_age_minutes == 120
     assert result.temperature.current == 21
     assert result.data_quality.stale_sensors == 1
+    cause = result.data_quality.freshness
+    assert cause.device_id == partial.device_id
+    assert cause.device_label == partial.label
+    assert cause.metric == "co2"
+    assert cause.latest_reading == partial.metric_updated["co2"]
+    assert cause.checked_at == NOW
+    assert "co2" in cause.description and partial.label in cause.description
+
+
+def test_all_core_metrics_under_fifteen_minutes_never_count_as_stale(monkeypatch):
+    sensors = [sensor(device_id=i, age=i) for i in range(1, 13)]
+    result = summary(monkeypatch, sensors, [])
+    assert result.data_quality.active_sensors == 12
+    assert result.data_quality.stale_sensors == 0
+    assert result.data_quality.missing_sensors == 0
+    assert result.data_quality.freshness.status == "current"
 
 
 def test_coverage_includes_registered_silent_air_sensors(monkeypatch):

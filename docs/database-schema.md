@@ -87,13 +87,18 @@ required. Labels and rooms can be edited without changing measurement identity.
 
 ## Measurements, time and concurrency
 
-`time` is the timezone-aware ChirpStack network event timestamp, normalized to
-UTC. It is not a claim that the sensor sampled at that precise instant.
-Messages without a timestamp are rejected: generating a receipt timestamp would
-make retransmissions appear to be new measurements. `received_at` is a separate
-database timestamp and records when the first copy was accepted.
+`time` is a timezone-aware measurement timestamp normalized to UTC. Ordinary
+periodic fields use ChirpStack's network event time; that is not a claim that
+the sensor sampled at that precise instant. AM103 `20ce` timestamped records use
+their embedded sensor sample time. A retransmitted sample keeps its old age
+even when its network event arrives now. Multiple records in one uplink keep
+their separate sample times, and normal fields after a history block are still
+decoded. Samples outside the admission window are skipped individually.
+Messages without a network timestamp are rejected: generating a receipt
+timestamp would make retransmissions appear to be new measurements.
+`received_at` is separate and records when the database first accepted a row.
 
-One device can have one value per metric and network timestamp. Both live writes
+One device can have one value per metric and measurement timestamp. Both live writes
 and buffered replay use `INSERT ... ON CONFLICT (device_id, metric, time) DO
 NOTHING`; the first committed value wins and its receipt time stays unchanged.
 The primary key enforces this across all writers. No advisory device locks or
@@ -110,6 +115,14 @@ The in-memory retry buffer is bounded and is not durable across process loss.
 Only transient database failures are retried. Permanently invalid uplinks are
 discarded with a log; an invalid/retired device cannot block other buffered
 uplinks. MQTT remains QoS 0, so uniqueness does not imply guaranteed delivery.
+
+Freshness uses the oldest required climate metric for each air sensor, rather
+than its battery/report receipt time. The summary identifies the responsible
+`device_id`, `device_label`, `metric`, `latest_reading` and `checked_at` in
+`data_quality.freshness`. Its description includes the exact measurement time.
+This distinguishes a transmitting sensor from a sensor with current climate
+measurements. Ingest logs subscription acknowledgement, unsupported payloads,
+timestamp rejection, and the SQLSTATE/reason for rejected writes.
 
 Canonical units are fixed for a metric key (for example `co2` in ppm,
 `temperature` in degC, phase current in A, cumulative phase current in Ah).

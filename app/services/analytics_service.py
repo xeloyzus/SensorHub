@@ -576,14 +576,28 @@ def _sensor_freshness(sensor, now: datetime) -> Freshness:
         ("co2", "temperature", "humidity") if sensor.type in AIR_SENSOR_TYPES
         else ("current_1", "current_2", "current_3")
     )
-    timestamps = [sensor.metric_updated.get(metric) for metric in expected]
-    if any(timestamp is None for timestamp in timestamps):
-        return classify_freshness(None, now)
+    missing = [metric for metric in expected if sensor.metric_updated.get(metric) is None]
+    if missing:
+        return classify_freshness(None, now).model_copy(update={
+            "device_id": sensor.device_id, "device_label": sensor.label,
+            "metric": missing[0], "checked_at": _aware_utc(now),
+            "description": f"{sensor.label}: no timestamp for {', '.join(missing)}.",
+        })
     # A fresh battery or panel-temperature report cannot mask old telemetry.
-    future = next(
-        (timestamp for timestamp in timestamps if _aware_utc(timestamp) > now), None
+    timestamps = [(metric, _aware_utc(sensor.metric_updated[metric])) for metric in expected]
+    metric, timestamp = next(
+        ((metric, timestamp) for metric, timestamp in timestamps if timestamp > _aware_utc(now)),
+        min(timestamps, key=lambda item: item[1]),
     )
-    return classify_freshness(future or min(timestamps), now)
+    result = classify_freshness(timestamp, now)
+    return result.model_copy(update={
+        "device_id": sensor.device_id, "device_label": sensor.label,
+        "metric": metric, "checked_at": _aware_utc(now),
+        "description": (
+            f"{sensor.label} / {metric}: {result.description} "
+            f"Measurement timestamp: {timestamp.isoformat()}."
+        ),
+    })
 
 
 def _worst_freshness(items: list[Freshness]) -> Freshness:

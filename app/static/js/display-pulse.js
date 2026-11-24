@@ -309,7 +309,7 @@ function renderDataQuality(summary) {
   document.getElementById("display-quality-summary").textContent = confidenceSentence(summary);
   document.getElementById("display-quality-list").innerHTML = `
     <span><strong>${summary.data_quality.active_sensors}</strong> reporting sensors</span>
-    <span><strong>${summary.data_quality.stale_sensors}</strong> stale sensors</span>
+    <span><strong>${summary.data_quality.stale_sensors}</strong> sensors with stale readings</span>
     <span><strong>${summary.data_quality.missing_sensors || 0}</strong> sensors with missing readings</span>
     <span><strong>${coveragePercent(summary.co2)}%</strong> CO2 coverage</span>
     <span><strong>${escapeHtml(freshnessText(quality.freshness))}</strong> freshness</span>

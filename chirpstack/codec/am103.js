@@ -10,7 +10,7 @@ function decodeMilesight(bytes) {
         var type = bytes[i++];
         if (channel === 0xff && type === 0x01 && i + 1 <= bytes.length) {
             i += 1; // protocol version
-        } else if (channel === 0xff && (type === 0x09 || type === 0x0a || type === 0xff) && i + 2 <= bytes.length) {
+        } else if (channel === 0xff && (type === 0x09 || type === 0x0a || type === 0xff || type === 0x18) && i + 2 <= bytes.length) {
             i += 2; // hardware, firmware, or TSL version
         } else if (channel === 0xff && type === 0x16 && i + 8 <= bytes.length) {
             i += 8; // serial number

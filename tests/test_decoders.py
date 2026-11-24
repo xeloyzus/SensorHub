@@ -1,6 +1,8 @@
 """Tests for the Milesight payload decoders (pure functions, no I/O)."""
 
-from ingest.decoders import am103_decoder, am107_decoder, ct305_decoder, decode
+from datetime import datetime, timedelta, timezone
+
+from ingest.decoders import am103_decoder, am107_decoder, ct305_decoder, decode, decode_samples
 
 
 def test_am103_full_example():
@@ -12,6 +14,34 @@ def test_am103_full_example():
         "humidity": 54.5,
         "co2": 453.0,
     }
+
+
+def test_am103_timestamped_history_uses_embedded_time_and_continues_into_live_data():
+    event_time = datetime(2026, 11, 24, 22, tzinfo=timezone.utc)
+    sample_time = event_time-timedelta(minutes=5)
+    history = b"\x20\xce" + int(sample_time.timestamp()).to_bytes(4, "little") + bytes.fromhex("e1005abc02")
+    payload = history + bytes.fromhex("ff1800030175640367dc00046850077d4c04")
+    samples = decode_samples(payload, "am103", event_time)
+    assert samples == [
+        (sample_time, {"temperature": 22.5, "humidity": 45, "co2": 700}),
+        (event_time, {"battery": 100, "temperature": 22, "humidity": 40, "co2": 1100}),
+    ]
+    # Flat callers get only live fields; historical values never masquerade as live.
+    assert decode(payload, "am103") == samples[-1][1]
+
+
+def test_old_retransmission_is_not_assigned_the_new_uplink_time():
+    event_time = datetime(2026, 11, 24, 22, tzinfo=timezone.utc)
+    sample_time = event_time-timedelta(hours=31, minutes=24)
+    history = b"\x20\xce" + int(sample_time.timestamp()).to_bytes(4, "little") + bytes.fromhex("e1005abc02")
+    assert decode_samples(history, "am103", event_time)[0][0] == sample_time
+
+
+def test_multiple_history_records_keep_separate_sample_times():
+    now = datetime(2026, 11, 24, 22, tzinfo=timezone.utc)
+    times = [now-timedelta(minutes=30), now-timedelta(minutes=15)]
+    payload = b"".join(b"\x20\xce" + int(t.timestamp()).to_bytes(4, "little") + bytes.fromhex("e1005abc02") for t in times)
+    assert [t for t, _ in decode_samples(payload, "am103", now)] == times
 
 
 def test_ct305_total_current():

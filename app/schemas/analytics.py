@@ -13,6 +13,10 @@ class Freshness(BaseModel):
     latest_reading: datetime | None = None
     age_minutes: int | None = None
     description: str
+    device_id: int | None = None
+    device_label: str | None = None
+    metric: str | None = None
+    checked_at: datetime | None = None
 
 
 class DataQuality(BaseModel):

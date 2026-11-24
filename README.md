@@ -271,9 +271,11 @@ Ingestion validates JSON types, DevEUIs, base64, and timezone-aware timestamps,
 and rejects clocks more than five minutes in the future. Known sensor metadata
 is skipped safely before decoding measurements. Metric writes for each uplink
 are transactional, and database keys deduplicate live writes and buffered
-replay. Missing timestamps are rejected. Durable delivery across process loss
-and historical sensor payload replay remain follow-up work; subscription
-delivery is currently QoS 0.
+replay. AM103 timestamped history records are decoded with their embedded sample
+time, so recent records update freshness while old retransmissions stay old.
+Missing network timestamps are rejected. Durable delivery across process loss
+remains follow-up work; subscription delivery is currently QoS 0. Freshness
+summaries name the device, metric and exact timestamp responsible for a warning.
 
 ## Development checks
 
@@ -383,10 +385,10 @@ read-only filesystem, and `/health` returns HTTP 503 when the database cannot
 be reached. Caddy waits for API readiness. The API port stays private to the
 Compose network; forwarded-header trust assumes requests arrive through Caddy.
 
-Repeated timestamped uplinks are ignored by ingestion using a per-device
-transaction lock and an existing-reading lookup. Old duplicate readings are
-preserved; this upgrade performs no telemetry deletion. Gateway messages should
-include their original network timestamp for repeat detection.
+Repeated device/metric/timestamp combinations are ignored using the database
+primary key and `ON CONFLICT DO NOTHING`, including buffered replay. AM103
+history records keep their embedded sample times; regular fields retain their
+network event time. Updating the decoder does not delete or rewrite telemetry.
 
 See [`docs/database-schema.md`](docs/database-schema.md) for the schema and
 upgrade guarantees. `app/requirements.lock` and `ingest/requirements.lock`
