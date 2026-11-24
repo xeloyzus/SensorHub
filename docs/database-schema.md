@@ -88,8 +88,14 @@ required. Labels and rooms can be edited without changing measurement identity.
 ## Measurements, time and concurrency
 
 `time` is a timezone-aware measurement timestamp normalized to UTC. Ordinary
-periodic fields use ChirpStack's network event time; that is not a claim that
-the sensor sampled at that precise instant. AM103 `20ce` timestamped records use
+periodic fields prefer the earliest ChirpStack `rxInfo.nsTime` network-server
+receipt timestamp. The integration event's top-level `time` can be derived from
+gateway/GPS metadata, so blindly using it can backdate live reports when an
+upstream clock is wrong. Legacy events without NS metadata retain their explicit
+top-level timestamp and log a warning if it is over 45 minutes behind ingestion.
+Neither path substitutes local receipt "now", so queued/repeated messages keep
+their original age and identity. Network receipt time is not a claim that the
+sensor sampled at that precise instant. AM103 `20ce` timestamped records use
 their embedded sensor sample time. A retransmitted sample keeps its old age
 even when its network event arrives now. Multiple records in one uplink keep
 their separate sample times, and normal fields after a history block are still
@@ -118,11 +124,14 @@ uplinks. MQTT remains QoS 0, so uniqueness does not imply guaranteed delivery.
 
 Freshness uses the oldest required climate metric for each air sensor, rather
 than its battery/report receipt time. The summary identifies the responsible
-`device_id`, `device_label`, `metric`, `latest_reading` and `checked_at` in
+`device_id`, `device_label`, `metric`, `latest_reading`, `received_at` and `checked_at` in
 `data_quality.freshness`. Its description includes the exact measurement time.
-This distinguishes a transmitting sensor from a sensor with current climate
-measurements. Ingest logs subscription acknowledgement, unsupported payloads,
-timestamp rejection, and the SQLSTATE/reason for rejected writes.
+When a selected stale row was just stored, the description also includes its
+first storage timestamp. The current-reading response exposes per-metric
+`metric_received_at` alongside `metric_updated`. A recent storage time never
+silently makes a genuinely old measurement current. Ingest logs upstream clock
+mismatches, subscription acknowledgement, unsupported payloads, timestamp
+rejection, and the SQLSTATE/reason for rejected writes.
 
 Canonical units are fixed for a metric key (for example `co2` in ppm,
 `temperature` in degC, phase current in A, cumulative phase current in Ah).

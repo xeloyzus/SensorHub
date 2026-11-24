@@ -117,15 +117,36 @@ def verify_timestamped_report_freshness(db):
         assert before['data_quality']['freshness']['age_minutes'] == 1884
         assert before['data_quality']['freshness']['metric'] == 'co2'
         assert before['data_quality']['freshness']['device_label'].startswith('Timestamped regression')
+        assert before['data_quality']['freshness']['received_at'] is not None
 
         def packet(eui, sample_time, event_time):
             frame = (b'\x20\xce' + int(sample_time.timestamp()).to_bytes(4, 'little')
                      + bytes.fromhex('e1005abc02'))
-            return json.dumps({'deviceInfo': {'devEui': eui}, 'time': event_time.isoformat(),
+            return json.dumps({'deviceInfo': {'devEui': eui}, 'time': old_time.isoformat(),
+                               'rxInfo': [{'gwTime': old_time.isoformat(), 'nsTime': event_time.isoformat()}],
                                'data': base64.b64encode(frame).decode()})
 
         sample_time = (now-timedelta(minutes=5)).replace(microsecond=0)
         with client('sensorhub-gateway', GATEWAY_PASSWORD) as gateway:
+            # Regular periodic reports can carry a gateway time 31 hours behind
+            # while ChirpStack's NS receipt metadata is current. These are not
+            # sensor history blocks: the stable network timestamp must win.
+            periodic_time = now-timedelta(minutes=10)
+            def deliver_periodic_reports():
+                for eui, _ in devices[:2]:
+                    payload = json.dumps({
+                        'deviceInfo': {'devEui': eui}, 'time': old_time.isoformat(),
+                        'rxInfo': [{'gwTime': old_time.isoformat(), 'nsTime': periodic_time.isoformat()}],
+                        'data': base64.b64encode(bytes.fromhex('0175640367e10004685a077dbc02')).decode(),
+                    })
+                    publish(gateway, f'application/1/device/{eui}/event/up', payload)
+                return api(path)['data_quality']['active_sensors'] == 2
+            eventually(deliver_periodic_reports, 'Backdated gateway time incorrectly kept periodic reports stale', timeout=35)
+            assert api(path)['data_quality']['stale_sensors'] == 0
+            assert api(path)['co2']['current'] == 700
+            for _, device_id in devices[:2]:
+                assert db.execute('SELECT count(*) FROM readings WHERE device_id=%s AND time=%s',
+                                  (device_id, periodic_time)).fetchone()[0] == 4
             def deliver_current_samples():
                 for eui, _ in devices[:2]:
                     publish(gateway, f'application/1/device/{eui}/event/up', packet(eui, sample_time, now))
@@ -150,7 +171,7 @@ def verify_timestamped_report_freshness(db):
                               (device_id, sample_time)).fetchone()[0] == 3
             assert db.execute('SELECT max(time) FROM readings WHERE device_id=%s', (device_id,)).fetchone()[0] == sample_time
         assert api(path)['data_quality']['stale_sensors'] == 0
-        print('PASS: reproduced 1884-minute stale summary; timestamped MQTT reports clear it and old replays keep their real age', flush=True)
+        print('PASS: 1884-minute stale reproduction; NS receive time fixes backdated periodic reports; historical samples keep their own age', flush=True)
     finally:
         db.execute('DELETE FROM readings WHERE device_id=ANY(%s)', (ids,))
         db.execute('UPDATE devices SET is_active=FALSE WHERE id=ANY(%s)', (ids,))

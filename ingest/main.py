@@ -122,6 +122,63 @@ class DeviceRegistry:
         self._cache.clear()
 
 
+def parse_timestamp(value: object, field: str) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be an ISO timestamp")
+    timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if timestamp.tzinfo is None:
+        raise ValueError(f"{field} must include a timezone")
+    return timestamp.astimezone(timezone.utc)
+
+
+def uplink_timestamp(data: dict, eui: str) -> datetime:
+    """Prefer ChirpStack's stable NS receipt time over a gateway-derived clock.
+
+    The integration event's top-level `time` may originate from gateway/GPS
+    metadata. `rxInfo.nsTime` is stamped by the network server. Both survive
+    MQTT redelivery; using local receipt 'now' would break idempotency and
+    turn queued old events into apparently current readings.
+    """
+    rx_info = data.get("rxInfo", [])
+    if rx_info is None:
+        rx_info = []
+    if not isinstance(rx_info, list):
+        raise ValueError("rxInfo must be a list")
+    ns_times = []
+    for item in rx_info:
+        if not isinstance(item, dict):
+            raise ValueError("rxInfo entries must be objects")
+        value = item.get("nsTime", item.get("ns_time"))
+        if value is not None:
+            ns_times.append(parse_timestamp(value, "rxInfo.nsTime"))
+    if ns_times:
+        timestamp = min(ns_times)
+        try:
+            event_time = parse_timestamp(data.get("time"), "time")
+        except ValueError:
+            event_time = None
+        if event_time is not None and abs(timestamp-event_time) > timedelta(minutes=1):
+            log.warning(
+                "Upstream clock mismatch for %s: event_time=%s ns_time=%s difference_minutes=%.1f; "
+                "using network-server receipt time for periodic measurements",
+                eui, event_time.isoformat(), timestamp.isoformat(),
+                (timestamp-event_time).total_seconds()/60,
+            )
+    else:
+        # Legacy integrations may not publish NS receive metadata.
+        timestamp = parse_timestamp(data.get("time"), "time")
+        age_minutes = (datetime.now(timezone.utc)-timestamp).total_seconds()/60
+        if age_minutes > 45:
+            log.warning(
+                "No rxInfo.nsTime for %s; event timestamp %s is %.1f minutes behind ingestion. "
+                "Check publisher/gateway clock or queued events; preserving the source timestamp",
+                eui, timestamp.isoformat(), age_minutes,
+            )
+    if timestamp-datetime.now(timezone.utc) > MAX_FUTURE_SKEW:
+        raise ValueError("network timestamp is more than five minutes in the future")
+    return timestamp
+
+
 def parse_message(payload: bytes) -> tuple[str, bytes, datetime]:
     """Extract ``(dev_eui, frame_payload, timestamp)`` from a gateway message.
 
@@ -145,18 +202,7 @@ def parse_message(payload: bytes) -> tuple[str, bytes, datetime]:
     if not isinstance(eui, str) or re.fullmatch(r"[0-9a-fA-F]{16}", eui) is None:
         raise ValueError("devEUI must contain 16 hexadecimal characters")
 
-    # A stable network timestamp is required for idempotency. Synthesizing 'now'
-    # would turn every retransmission into a different measurement.
-    iso = data.get("time")
-    if not isinstance(iso, str) or not iso:
-        raise ValueError("time must be an ISO timestamp")
-    ts = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-
-    if ts.tzinfo is None:
-        raise ValueError("time must include a timezone")
-    ts = ts.astimezone(timezone.utc)
-    if ts - datetime.now(timezone.utc) > MAX_FUTURE_SKEW:
-        raise ValueError("time is more than five minutes in the future")
+    ts = uplink_timestamp(data, eui.lower())
     frame = base64.b64decode(raw, validate=True)
     if not frame:
         raise ValueError("decoded payload is empty")

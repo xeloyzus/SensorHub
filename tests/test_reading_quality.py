@@ -77,6 +77,17 @@ def test_all_core_metrics_under_fifteen_minutes_never_count_as_stale(monkeypatch
     assert result.data_quality.freshness.status == "current"
 
 
+def test_recent_storage_time_does_not_disguise_old_measurement_time(monkeypatch):
+    old = sensor(age=1880)
+    old.metric_received_at = {metric: NOW for metric in old.readings}
+    result = summary(monkeypatch, [old], [])
+    cause = result.data_quality.freshness
+    assert cause.status == "stale" and cause.age_minutes == 1880
+    assert cause.received_at == NOW
+    assert cause.latest_reading == NOW-timedelta(minutes=1880)
+    assert "First stored:" in cause.description
+
+
 def test_coverage_includes_registered_silent_air_sensors(monkeypatch):
     history = series([600] * 96, list(reversed(range(0, 1440, 15))))
     missing = Sensor(device_id=2, label="Silent", type="am103", readings={})
@@ -149,7 +160,7 @@ def test_campus_freshness_does_not_hide_a_stale_building():
 def test_current_query_keeps_silent_devices_and_metric_timestamps(monkeypatch):
     cursor = AsyncMock()
     cursor.fetchone.return_value = (1, "Test", "test")
-    cursor.fetchall.return_value = [(1, "Room", "am103", "co2", 700, NOW), (1, "Room", "am103", "temperature", 21, NOW-timedelta(hours=2)), (2, "Silent", "am103", None, None, None)]
+    cursor.fetchall.return_value = [(1, "Room", "am103", "co2", 700, NOW, NOW), (1, "Room", "am103", "temperature", 21, NOW-timedelta(hours=2), NOW), (2, "Silent", "am103", None, None, None, None)]
 
     class DB:
         def cursor(self):
@@ -159,6 +170,7 @@ def test_current_query_keeps_silent_devices_and_metric_timestamps(monkeypatch):
     result = asyncio.run(buildings_service.get_current(DB(), 1))
     assert len(result.sensors) == 2
     assert result.sensors[0].metric_updated["temperature"] == NOW-timedelta(hours=2)
+    assert result.sensors[0].metric_received_at["temperature"] == NOW
     assert result.sensors[1].updated is None
     assert result.sensors[1].readings == {}
     assert "LEFT JOIN LATERAL" in cursor.execute.call_args_list[1].args[0]

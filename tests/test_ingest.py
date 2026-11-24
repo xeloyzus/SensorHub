@@ -32,6 +32,48 @@ def test_v4_device_info_uses_stable_network_time():
     assert timestamp == datetime(2020, 1, 1, 10, tzinfo=timezone.utc)
 
 
+def test_ns_receipt_time_replaces_backdated_gateway_clock(caplog):
+    receipt_time = datetime.now(timezone.utc)-timedelta(minutes=5)
+    gateway_time = receipt_time-timedelta(hours=31, minutes=20)
+    payload = uplink(time=gateway_time.isoformat(), rxInfo=[{
+        "gwTime": gateway_time.isoformat(), "nsTime": receipt_time.isoformat(),
+    }])
+    assert parse_message(payload)[2] == receipt_time
+    assert "Upstream clock mismatch" in caplog.text
+    assert "1880.0" in caplog.text
+    # Re-delivery keeps the original NS timestamp, never local receipt 'now'.
+    assert parse_message(payload)[2] == receipt_time
+
+
+def test_receipt_metadata_does_not_freshen_queued_old_events():
+    receipt_time = datetime.now(timezone.utc)-timedelta(hours=31)
+    assert parse_message(uplink(rxInfo=[{"nsTime": receipt_time.isoformat()}]))[2] == receipt_time
+
+
+def test_valid_ns_time_is_used_when_gateway_time_is_missing_or_in_future():
+    receipt_time = datetime.now(timezone.utc)
+    for gateway_time in (None, (receipt_time+timedelta(days=1)).isoformat()):
+        assert parse_message(uplink(time=gateway_time, rxInfo=[{
+            "nsTime": receipt_time.isoformat(),
+        }]))[2] == receipt_time
+
+
+def test_multi_gateway_ns_times_are_normalized_and_use_first_network_receipt():
+    receipt_time = datetime.now(timezone.utc)-timedelta(seconds=5)
+    assert parse_message(uplink(rxInfo=[
+        {"nsTime": (receipt_time+timedelta(seconds=1)).isoformat()},
+        {"nsTime": receipt_time.astimezone(timezone(timedelta(hours=2))).isoformat()},
+    ]))[2] == receipt_time
+
+
+@pytest.mark.parametrize("rx_info", ["invalid", [{} , 1], [{"nsTime": "not-a-date"}],
+    [{"nsTime": "2026-11-24T12:00:00"}],
+    [{"nsTime": (datetime.now(timezone.utc)+timedelta(days=1)).isoformat()}]])
+def test_bad_ns_metadata_is_rejected_without_falling_back_to_current_time(rx_info):
+    with pytest.raises(ValueError):
+        parse_message(uplink(rxInfo=rx_info))
+
+
 @pytest.mark.parametrize("timestamp", [None, ""])
 def test_missing_time_is_rejected_instead_of_creating_duplicate_receipt_times(timestamp):
     with pytest.raises(ValueError, match="time"):

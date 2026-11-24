@@ -14,6 +14,7 @@ class Sensor(BaseModel):
     readings: dict[str, float]
     updated: datetime | None = None
     metric_updated: dict[str, datetime] = Field(default_factory=dict)
+    metric_received_at: dict[str, datetime] = Field(default_factory=dict)
 
 
 class CurrentResponse(BaseModel):

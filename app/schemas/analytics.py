@@ -17,6 +17,7 @@ class Freshness(BaseModel):
     device_label: str | None = None
     metric: str | None = None
     checked_at: datetime | None = None
+    received_at: datetime | None = None
 
 
 class DataQuality(BaseModel):

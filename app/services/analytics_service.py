@@ -590,12 +590,18 @@ def _sensor_freshness(sensor, now: datetime) -> Freshness:
         min(timestamps, key=lambda item: item[1]),
     )
     result = classify_freshness(timestamp, now)
+    received_at = sensor.metric_received_at.get(metric)
+    receipt_text = (
+        f" First stored: {_aware_utc(received_at).isoformat()}."
+        if received_at is not None and result.status != "current" else ""
+    )
     return result.model_copy(update={
         "device_id": sensor.device_id, "device_label": sensor.label,
         "metric": metric, "checked_at": _aware_utc(now),
+        "received_at": received_at,
         "description": (
             f"{sensor.label} / {metric}: {result.description} "
-            f"Measurement timestamp: {timestamp.isoformat()}."
+            f"Measurement timestamp: {timestamp.isoformat()}." + receipt_text
         ),
     })
 

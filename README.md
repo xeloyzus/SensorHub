@@ -267,7 +267,9 @@ minutes old. Recommendations are suppressed when the building's overall
 freshness is delayed, stale, or unknown. One-hour changes compare timestamps
 one hour apart (within five minutes) and reject gaps over 20 minutes.
 
-Ingestion validates JSON types, DevEUIs, base64, and timezone-aware timestamps,
+Ingestion prefers ChirpStack's stable `rxInfo.nsTime` network-server receive time
+over a potentially mis-set gateway-derived event time. It validates JSON types,
+DevEUIs, base64, and timezone-aware timestamps,
 and rejects clocks more than five minutes in the future. Known sensor metadata
 is skipped safely before decoding measurements. Metric writes for each uplink
 are transactional, and database keys deduplicate live writes and buffered
@@ -275,7 +277,8 @@ replay. AM103 timestamped history records are decoded with their embedded sample
 time, so recent records update freshness while old retransmissions stay old.
 Missing network timestamps are rejected. Durable delivery across process loss
 remains follow-up work; subscription delivery is currently QoS 0. Freshness
-summaries name the device, metric and exact timestamp responsible for a warning.
+summaries name the device, metric, measurement time and first storage time
+responsible for a warning. Existing rows are not automatically re-dated.
 
 ## Development checks
 
