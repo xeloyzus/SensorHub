@@ -229,7 +229,7 @@ without printing secrets using `docker compose --env-file .env config --quiet`.
 
 Set each Samsung screen's built-in URL feature to `https://<DOMAIN>/`.
 The Linux PC serves the webpage, API, and data; the screens render the page
-and periodically request fresh data over their internet connection. See
+and periodically request updated data over their internet connection. See
 [`docs/signage-setup.md`](docs/signage-setup.md) for the screen setup.
 The screen's integrated URL feature handles opening the page and returning
 to it after startup.
@@ -252,30 +252,31 @@ to it after startup.
 
 The current-readings API includes every registered sensor, even when it has
 never reported. `updated` and `metric_updated` are additive sensor fields;
-the existing numeric `readings` map is preserved. Missing timestamps are
-treated as unknown, rather than inferred from another sensor.
+the existing numeric `readings` map is preserved. Measurement timestamps are
+kept per metric, rather than inferred from another sensor.
 
-Current summaries exclude metrics older than 45 minutes and timestamps in
-the future. Building/campus freshness represents the least fresh sensor;
-the quality object separately reports active, stale, missing, and registered
-sensors. An air sensor requires CO2, temperature, and humidity timestamps;
-a current clamp requires all three phase-current timestamps. A new battery
-reading does not make old environmental readings current.
+Summaries use the latest stored measurement for each sensor and metric,
+excluding timestamps in the future. The `current` metric field contains this
+latest-value average without an age cutoff. `data_quality` reports
+`registered_sensors`, `sensors_with_readings`, `missing_sensors`,
+`coverage_24h`, and the `latest_reading` measurement timestamp. A sensor is
+counted as missing only when it has no measurements. Displays show measurement
+timestamps without assigning age categories to sensors or readings.
 
 Indoor temperature statistics include registered AM103 and legacy AM107 air
 sensors, excluding CT305 panel temperatures. Current campus
-averages are weighted by reporting sensors, historical means by populated
+averages are weighted by sensors with readings, historical means by populated
 15-minute buckets, and coverage includes registered air sensors with no data.
 Historical min/max/p95 describe bucket averages, not raw peaks. Measured zero
 current is retained as zero; electricity remains an estimate at 230 V using
-the available fresh phases, without calibrated power-factor or kWh data.
+the latest available phases, without calibrated power-factor or kWh data.
 
 Methodology `co2-v2` requires at least four consecutive elevated 15-minute
 averages from the same sensor, spanning at least 45 minutes, with no gap
 over 20 minutes. Its latest bucket must be within 35 minutes (including
 bucket alignment), and its current raw CO2 reading must be less than 20
-minutes old. Recommendations are suppressed when the building's overall
-freshness is delayed, stale, or unknown. One-hour changes compare timestamps
+minutes old. These evidence requirements apply to suggestions rather than
+the visibility of stored values. One-hour changes compare timestamps
 one hour apart (within five minutes) and reject gaps over 20 minutes.
 
 Ingestion prefers ChirpStack's stable `rxInfo.nsTime` network-server receive time
@@ -285,11 +286,11 @@ and rejects clocks more than five minutes in the future. Known sensor metadata
 is skipped safely before decoding measurements. Metric writes for each uplink
 are transactional, and database keys deduplicate live writes and buffered
 replay. AM103 timestamped history records are decoded with their embedded sample
-time, so recent records update freshness while old retransmissions stay old.
+time, so retransmissions retain their original measurement timestamps.
 Missing network timestamps are rejected. Durable delivery across process loss
-remains follow-up work; subscription delivery is currently QoS 0. Freshness
-summaries name the device, metric, measurement time and first storage time
-responsible for a warning. Existing rows are not automatically re-dated.
+remains follow-up work; subscription delivery is currently QoS 0. Per-metric
+measurement and first storage timestamps remain available in the current-reading
+response. Existing rows are not automatically re-dated.
 
 ## Development checks
 
@@ -375,7 +376,7 @@ Do these things, on a schedule, and it will keep running:
      `chirpstack-redis`, `mosquitto`, `ingest`, `timescaledb`, and `api` running.
    - `/api/system/status` returns `"mode": "live"` and `"data_source": "timescaledb"`.
    - `/api/buildings/{id}/current` has recent `updated` timestamps after a gateway uplink.
-   - Display header shows the sensor source and actual reading freshness.
+   - Display shows the sensor source and latest measurement timestamp.
 
 7. **Document the handover** — the people running this in year 3 will not be
    the people who set it up. Keep `README.md` + `docs/signage-setup.md` current, and

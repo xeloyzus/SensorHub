@@ -13,7 +13,7 @@ def test_building_summary_has_evidence(telemetry_services):
     assert summary.building.name == "EOJ"
     assert summary.co2.current is not None
     assert summary.co2.sample_count > 0
-    assert summary.data_quality.freshness.status == "current"
+    assert summary.data_quality.sensors_with_readings > 0
     assert summary.insights
 
 

@@ -90,8 +90,7 @@ body {
   min-width: 0;
 }
 
-.display-status span,
-.display-badge {
+.display-status span {
   border: 1px solid var(--display-line);
   border-radius: 8px;
   background: var(--display-panel);
@@ -103,14 +102,6 @@ body {
 
 .display-status span {
   padding: 0.7rem 0.9rem;
-}
-
-.display-status .delayed {
-  color: var(--display-amber);
-}
-
-.display-status .stale {
-  color: var(--display-red);
 }
 
 .display-status .live {
@@ -462,25 +453,6 @@ body {
   line-height: 1;
 }
 
-.display-badge {
-  display: inline-flex;
-  width: fit-content;
-  padding: 0.45rem 0.65rem;
-  font-size: 1.05rem;
-}
-
-.display-badge.current {
-  color: var(--display-green);
-}
-
-.display-badge.delayed {
-  color: var(--display-amber);
-}
-
-.display-badge.stale {
-  color: var(--display-red);
-}
-
 .display-building-values {
   display: grid;
   grid-template-columns: 1fr;
@@ -769,3 +741,7 @@ html.display-root {
 .display-progress span { background: var(--color-green); }
 .annotation-line { stroke: var(--color-green); }
 .annotation-dot { fill: var(--color-green); }
+
+.display-status .connection-error {
+  color: var(--display-red);
+}

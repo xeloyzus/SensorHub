@@ -97,15 +97,6 @@ async function fetchWithTimeout(url, timeoutMs = 10000) {
   }
 }
 
-function metricFreshness(sensor, metric) {
-  const timestamp = sensor.metric_updated?.[metric];
-  const age = timestamp ? Date.now() - new Date(timestamp).getTime() : NaN;
-  if (!Number.isFinite(age) || age < 0) return 'Freshness unknown';
-  if (age < 20 * 60000) return 'Current';
-  if (age <= 45 * 60000) return 'Delayed';
-  return 'Stale';
-}
-
 async function loadDashboard() {
   const container = document.getElementById('mobile');
   const updatedEl = document.getElementById('updated');
@@ -134,9 +125,7 @@ async function loadDashboard() {
         
         const co2Readings = [];
         for (const sensor of data.sensors) {
-          const timestamp = sensor.metric_updated?.co2;
-          const age = timestamp ? Date.now() - new Date(timestamp).getTime() : Infinity;
-          if (sensor.readings?.co2 != null && age >= 0 && age <= 45 * 60000) {
+          if (sensor.readings?.co2 != null) {
             co2Readings.push(sensor.readings.co2);
           }
         }
@@ -153,7 +142,6 @@ async function loadDashboard() {
               `<span class="metric">
                 <em>${METRICS[metric].label}</em>
                 <strong>${formatValue(metric, value)}</strong>
-                <small>${metricFreshness(sensor, metric)}</small>
               </span>`
             ).join('');
           

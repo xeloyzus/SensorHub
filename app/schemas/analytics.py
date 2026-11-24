@@ -8,34 +8,18 @@ from pydantic import BaseModel, Field
 from .building import Building
 
 
-class Freshness(BaseModel):
-    status: str
-    latest_reading: datetime | None = None
-    age_minutes: int | None = None
-    description: str
-    device_id: int | None = None
-    device_label: str | None = None
-    metric: str | None = None
-    checked_at: datetime | None = None
-    received_at: datetime | None = None
-
-
 class DataQuality(BaseModel):
-    active_sensors: int
-    stale_sensors: int
+    sensors_with_readings: int
     registered_sensors: int = 0
     missing_sensors: int = 0
     coverage_24h: float
-    freshness: Freshness
+    latest_reading: datetime | None = None
 
 
 class MetricStatistics(BaseModel):
     label: str
     unit: str
     current: float | None = None
-    last_known: float | None = None
-    last_known_source_count: int = 0
-    last_known_age_minutes: int | None = None
     mean_24h: float | None = None
     median_24h: float | None = None
     min_24h: float | None = None
@@ -106,7 +90,6 @@ class CampusSummary(BaseModel):
 class Methodology(BaseModel):
     id: str
     title: str
-    freshness_minutes: dict[str, int]
     co2_reference_ppm: int
     co2_bands: list[dict[str, Any]]
     sustained_minutes: int

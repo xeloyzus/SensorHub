@@ -68,7 +68,7 @@
           "datasource": { "type": "postgres", "uid": "sensorhub-timescale" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT b.name AS building, d.label AS device, upper(d.eui) AS dev_eui, coalesce(d.room, '') AS room, latest.metric AS metric, latest.time AS time, latest.value AS value, CASE WHEN latest.time IS NULL THEN 'No readings stored' WHEN latest.time > now() THEN 'Future timestamp' WHEN latest.time < now() - INTERVAL '45 minutes' THEN 'Stale' ELSE 'Reporting' END AS status FROM devices d JOIN buildings b ON b.id = d.building_id LEFT JOIN LATERAL (SELECT DISTINCT ON (r.metric) r.metric, r.time, r.value FROM readings r WHERE r.device_id = d.id ORDER BY r.metric, r.time DESC) latest ON true ORDER BY b.name, d.label, latest.metric",
+          "rawSql": "SELECT b.name AS building, d.label AS device, upper(d.eui) AS dev_eui, coalesce(d.room, '') AS room, latest.metric AS metric, latest.time AS time, latest.value AS value, CASE WHEN latest.time IS NULL THEN 'No readings stored' WHEN latest.time > now() THEN 'Future timestamp' ELSE 'Stored' END AS status FROM devices d JOIN buildings b ON b.id = d.building_id LEFT JOIN LATERAL (SELECT DISTINCT ON (r.metric) r.metric, r.time, r.value FROM readings r WHERE r.device_id = d.id ORDER BY r.metric, r.time DESC) latest ON true ORDER BY b.name, d.label, latest.metric",
           "refId": "A"
         }
       ],

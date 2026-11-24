@@ -85,9 +85,9 @@ It preserves all ten numeric outputs: `battery`, `temperature`, `humidity`,
 and `pressure`. The six-byte light record contains three separate values;
 PIR activity is a 16-bit count. It is not treated as a people count or an
 occupied/vacant flag. The mobile view exposes these measurements with their
-own freshness timestamps.
+measurement timestamps.
 
 AM103 and AM107 both contribute CO2/temperature to climate summaries,
-coverage, freshness checks, and sustained-CO2 recommendations. A fresh activity
-report cannot make old climate readings current. Energy per occupied hour and
+coverage, and sustained-CO2 recommendations. Activity and climate measurements
+retain their separate timestamps. Energy per occupied hour and
 automated ventilation control need a separate, validated method/integration.

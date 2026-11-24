@@ -28,11 +28,10 @@
   <section class="pulse-hero" aria-labelledby="pulse-title">
     <div class="pulse-hero-copy">
       <p class="eyebrow">Latest campus readings</p>
-      <h1 id="pulse-title">How is campus doing right now?</h1>
+      <h1 id="pulse-title">Latest campus measurements</h1>
       <p id="campus-status" class="pulse-status">Loading the latest sensor data...</p>
       <div class="pulse-meta">
-        <span id="data-source-badge" class="freshness-badge">Checking source</span>
-        <span id="freshness-badge" class="freshness-badge">Checking freshness</span>
+        <span id="data-source-badge" class="source-badge">Checking source</span>
         <span id="latest-reading">Latest reading unavailable</span>
       </div>
     </div>
@@ -72,7 +71,7 @@
         <p class="eyebrow">Buildings</p>
         <h2 id="buildings-title">Where is it happening?</h2>
       </div>
-      <p>Compare the latest readings, their age, and changes over the past day.</p>
+      <p>Compare the latest readings and changes over the past day.</p>
     </div>
     <div id="building-grid" class="building-grid" aria-live="polite"></div>
   </section>
@@ -102,7 +101,7 @@
     <div>
       <p class="eyebrow">Explore</p>
       <h2 id="explore-title">Explore the readings</h2>
-      <p>Compare buildings, follow CO2 trends, and check how fresh each reading is. Open the summary to see the values behind the dashboard.</p>
+      <p>Compare buildings, follow CO2 trends, and view measurement timestamps. Open the summary to see the values behind the dashboard.</p>
     </div>
     <a class="text-button" href="/api/campus/summary">View data summary</a>
   </section>
@@ -121,6 +120,6 @@
 {% block scripts %}
 <script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
 <script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
-<script src="/static/js/dashboard.js?v=20261121-live-hour-readings"></script>
+<script src="/static/js/dashboard.js?v=20261125-measurements"></script>
 <script>initCampusPulse();</script>
 {% endblock %}

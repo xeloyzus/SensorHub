@@ -27,12 +27,12 @@ function mobile(fetch) {
   return { context, elements, errors };
 }
 
-test("mobile renders readings without a scope error and excludes stale CO2 from its badge", async () => {
+test("mobile renders latest stored readings regardless of their measurement date", async () => {
   const now = new Date().toISOString();
   const old = new Date(Date.now() - 120 * 60000).toISOString();
   const data = { sensors: [
-    { label: "Fresh", type: "am103", updated: now, metric_updated: { co2: now }, readings: { co2: 600 } },
-    { label: "Stale", type: "am103", updated: old, metric_updated: { co2: old }, readings: { co2: 2400 } },
+    { label: "Reporting", type: "am103", updated: now, metric_updated: { co2: now }, readings: { co2: 600 } },
+    { label: "Earlier", type: "am103", updated: old, metric_updated: { co2: old }, readings: { co2: 2400 } },
     { label: "Auditorium", type: "am107", updated: now,
       metric_updated: { co2: now, activity: now, illumination: now, tvoc: now, pressure: now },
       readings: { co2: 700, activity: 0, illumination: 350, tvoc: 120, pressure: 1013.2 } },
@@ -43,8 +43,8 @@ test("mobile renders readings without a scope error and excludes stale CO2 from 
   assert.equal(app.elements.mobile.children.length, 1);
   const html = app.elements.mobile.children[0].innerHTML;
   assert.ok(html.includes("Library"));
-  assert.ok(html.includes("Good"));
-  assert.ok(html.includes("<small>Stale</small>"));
+  assert.ok(html.includes("Poor"));
+  assert.ok(!html.includes("<small>"));
   assert.ok(html.includes('sensor-am107'));
   assert.ok(html.includes('PIR activity'));
   assert.ok(html.includes('0 count'));
@@ -129,8 +129,8 @@ test("Samsung URL page loads and refreshes using the published display interval"
   const temperature = { current: 21, unit: "°C", change_1h: 0, coverage_24h: 1 };
   const energy = { current_kw: 4 };
   const data_quality = {
-    active_sensors: 1, stale_sensors: 0, missing_sensors: 0,
-    freshness: { status: "current", description: "Latest reading is current." },
+    sensors_with_readings: 1, registered_sensors: 1, missing_sensors: 0,
+    latest_reading: "2026-11-23T15:05:48Z",
   };
   const summary = {
     co2, temperature, energy, data_quality, insights: [],
@@ -173,15 +173,18 @@ test("Samsung URL page loads and refreshes using the published display interval"
   assert.equal(elements["display-co2"].textContent, "900 ppm");
   assert.equal(scheduled[0].milliseconds, 45_000);
 
-  co2.current = null;
-  co2.last_known = 650;
-  co2.last_known_source_count = 1;
-  co2.last_known_age_minutes = 1888;
+  co2.current = 650;
   await scheduled.shift().callback();
   assert.equal(elements["display-co2"].textContent, "650 ppm");
-  assert.match(elements["display-co2-context"].textContent, /1d 7h 28m old/);
-  assert.match(elements["scene-campus-summary"].textContent, /Current CO2 data is unavailable/);
-  assert.match(elements["display-map-summary"].textContent, /stale/);
+  assert.match(elements["scene-campus-summary"].textContent, /Latest average is 650/);
+  assert.match(elements["display-updated"].textContent, /Latest measurement:/);
+  assert.match(elements["display-map-summary"].textContent, /highest CO2 average/);
+
+  co2.current = null;
+  await scheduled.shift().callback();
+  assert.equal(elements["display-co2"].textContent, "--");
+  assert.match(elements["scene-campus-summary"].textContent, /No CO2 sensor readings/);
+  assert.match(elements["display-map-summary"].textContent, /comparison is unavailable/);
 });
 
 test("overview recovers after an API outage without losing its page elements", async () => {
@@ -196,7 +199,7 @@ test("overview recovers after an API outage without losing its page elements", a
     }
     return elements.get(id);
   };
-  const metric = { current: null, sample_count: 0 };
+  const metric = { current: null, unit: "ppm", source_count: 1, sample_count: 0 };
   let offline = true;
   const context = {
     document: { getElementById, createElement: element },
@@ -206,8 +209,8 @@ test("overview recovers after an API outage without losing its page elements", a
       buildings: [{
         building: { id: 1, name: "KEH" }, co2: metric, temperature: metric,
         energy: { current_kw: null }, recommendations: [],
-        data_quality: { freshness: { status: "stale" } },
-      }], insights: [], data_quality: { freshness: { status: "unknown", description: "No readings yet" } },
+        data_quality: { sensors_with_readings: 0, registered_sensors: 1 },
+      }], insights: [], data_quality: { sensors_with_readings: 0, registered_sensors: 1, latest_reading: null },
     }),
     getMethodology: async () => ({}),
     getHistory: async (_buildingId, range) => { historyRanges.push(range); return { series: [] }; },
@@ -223,11 +226,9 @@ test("overview recovers after an API outage without losing its page elements", a
   assert.equal(getElementById("overview-error").hidden, true);
   assert.ok(getElementById("campus-status").textContent.includes("CO2"));
 
-  metric.last_known = 640;
-  metric.last_known_source_count = 1;
-  metric.last_known_age_minutes = 1888;
+  metric.current = 640;
   await scheduled.shift()();
-  assert.match(getElementById("campus-status").textContent, /Last known campus CO2 was 640 ppm/);
+  assert.match(getElementById("campus-status").textContent, /Latest campus CO2 average is 640 ppm/);
   assert.ok(historyRanges.length > 0);
   assert.ok(historyRanges.every(range => range === "1h"));
 });

@@ -80,8 +80,8 @@ def api(path):
         return json.load(response)
 
 
-def verify_timestamped_report_freshness(db):
-    """Reproduce two 31-hour stale sensors plus ten missing, then deliver samples.
+def verify_timestamped_reports(db):
+    """Deliver measurements with different gateway, network, and sensor timestamps.
 
     This archived synthetic building is never included in campus summaries.
     Everything runs inside the guarded disposable integration database.
@@ -111,13 +111,10 @@ def verify_timestamped_report_freshness(db):
                            (old_time, device_id, metric, value))
         path = f"/api/buildings/{building_id}/summary"
         before = api(path)
-        assert before['data_quality']['active_sensors'] == 0
-        assert before['data_quality']['stale_sensors'] == 2
+        assert before['data_quality']['sensors_with_readings'] == 2
         assert before['data_quality']['missing_sensors'] == 10
-        assert before['data_quality']['freshness']['age_minutes'] == 1884
-        assert before['data_quality']['freshness']['metric'] == 'co2'
-        assert before['data_quality']['freshness']['device_label'].startswith('Timestamped regression')
-        assert before['data_quality']['freshness']['received_at'] is not None
+        assert before['co2']['current'] == 894
+        assert datetime.fromisoformat(before['data_quality']['latest_reading'].replace('Z', '+00:00')) == old_time
 
         def packet(eui, sample_time, event_time):
             frame = (b'\x20\xce' + int(sample_time.timestamp()).to_bytes(4, 'little')
@@ -140,9 +137,8 @@ def verify_timestamped_report_freshness(db):
                         'data': base64.b64encode(bytes.fromhex('0175640367e10004685a077dbc02')).decode(),
                     })
                     publish(gateway, f'application/1/device/{eui}/event/up', payload)
-                return api(path)['data_quality']['active_sensors'] == 2
-            eventually(deliver_periodic_reports, 'Backdated gateway time incorrectly kept periodic reports stale', timeout=35)
-            assert api(path)['data_quality']['stale_sensors'] == 0
+                return api(path)['co2']['current'] == 700
+            eventually(deliver_periodic_reports, 'Periodic reports did not use the network timestamp', timeout=35)
             assert api(path)['co2']['current'] == 700
             for _, device_id in devices[:2]:
                 assert db.execute('SELECT count(*) FROM readings WHERE device_id=%s AND time=%s',
@@ -150,10 +146,12 @@ def verify_timestamped_report_freshness(db):
             def deliver_current_samples():
                 for eui, _ in devices[:2]:
                     publish(gateway, f'application/1/device/{eui}/event/up', packet(eui, sample_time, now))
-                return api(path)['data_quality']['active_sensors'] == 2
-            eventually(deliver_current_samples, 'Timestamped AM103 measurements did not clear false stale status', timeout=35)
+                return all(db.execute('SELECT count(*) FROM readings WHERE device_id=%s AND time=%s',
+                                      (device_id, sample_time)).fetchone()[0] == 3
+                           for _, device_id in devices[:2])
+            eventually(deliver_current_samples, 'Timestamped AM103 measurements were not stored', timeout=35)
             after = api(path)
-            assert after['data_quality']['stale_sensors'] == 0
+            assert after['data_quality']['sensors_with_readings'] == 2
             assert after['data_quality']['missing_sensors'] == 10
             assert after['co2']['current'] == 700
             assert after['temperature']['current'] == 22.5
@@ -170,8 +168,8 @@ def verify_timestamped_report_freshness(db):
             assert db.execute('SELECT count(*) FROM readings WHERE device_id=%s AND time=%s',
                               (device_id, sample_time)).fetchone()[0] == 3
             assert db.execute('SELECT max(time) FROM readings WHERE device_id=%s', (device_id,)).fetchone()[0] == sample_time
-        assert api(path)['data_quality']['stale_sensors'] == 0
-        print('PASS: 1884-minute stale reproduction; NS receive time fixes backdated periodic reports; historical samples keep their own age', flush=True)
+        assert api(path)['co2']['current'] == 700
+        print('PASS: Latest stored values have no age classification; NS time fixes backdated periodic reports; sensor samples keep their timestamps', flush=True)
     finally:
         db.execute('DELETE FROM readings WHERE device_id=ANY(%s)', (ids,))
         db.execute('UPDATE devices SET is_active=FALSE WHERE id=ANY(%s)', (ids,))
@@ -184,7 +182,7 @@ def run():
         assert db.execute("SELECT extversion FROM pg_extension WHERE extname='timescaledb'").fetchone()
         assert db.execute("SELECT to_regclass('readings_hourly')").fetchone()[0]
         assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
-        verify_timestamped_report_freshness(db)
+        verify_timestamped_reports(db)
         # Keep deployment registry rows, while isolating these smoke-test sensors
         # from the seeded active fleet. This is a disposable test database.
         db.execute("UPDATE devices SET is_active = FALSE WHERE label NOT LIKE 'Integration %'")
@@ -198,8 +196,8 @@ def run():
         print("PASS: TimescaleDB migrations and hourly aggregate initialize", flush=True)
 
         devices = [
-            (EUI, "am103", "Integration fresh"),
-            ("24e1241200000002", "am103", "Integration stale"),
+            (EUI, "am103", "Integration reporting"),
+            ("24e1241200000002", "am103", "Integration earlier"),
             ("24e1241200000003", "am103", "Integration silent"),
             ("24e1241200000004", "ct305", "Integration panel"),
             (AM107_EUI, "am107", "Integration AM107"),
@@ -271,11 +269,11 @@ def run():
         print('PASS: AM107 MQTT decoding, database persistence, inventory, history, and climate analytics', flush=True)
 
         now = datetime.now(timezone.utc)
-        stale_id = ids["24e1241200000002"]
+        earlier_id = ids["24e1241200000002"]
         panel_id = ids["24e1241200000004"]
         with db.transaction():
             for metric, value in {"co2": 2400, "temperature": 30, "humidity": 60}.items():
-                db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now-timedelta(hours=2), stale_id, metric, value))
+                db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now-timedelta(hours=2), earlier_id, metric, value))
             for metric, value in {"temperature": 80, "current_1": 0, "current_2": 0, "current_3": 0}.items():
                 db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now, panel_id, metric, value))
 
@@ -283,31 +281,31 @@ def run():
         current = api(f"/api/buildings/{building_id}/current")
         assert len(current["sensors"]) == 4
         assert next(sensor for sensor in current["sensors"] if sensor["label"] == "Integration silent")["updated"] is None
-        assert next(sensor for sensor in current["sensors"] if sensor["label"] == "Integration fresh")["readings"]["temperature"] == 22
+        assert next(sensor for sensor in current["sensors"] if sensor["label"] == "Integration reporting")["readings"]["temperature"] == 22
         result = api(f"/api/buildings/{building_id}/summary")
-        assert result["co2"]["current"] == 1100
-        assert result["temperature"]["current"] == 22
+        assert result["co2"]["current"] == 1750
+        assert result["temperature"]["current"] == 26
         assert result["energy"]["current_kw"] == 0
-        assert result["data_quality"]["stale_sensors"] == 1
+        assert result["data_quality"]["sensors_with_readings"] == 3
         assert result["data_quality"]["missing_sensors"] == 1
         assert result["recommendations"] == []
         assert api(f"/api/buildings/{building_id}/history?range=24h")["series"]
-        assert api("/api/campus/summary")["co2"]["current"] == 1100
-        print("PASS: real SQL/API handle silent sensors, stale readings, panel temperature, and zero current", flush=True)
+        assert api("/api/campus/summary")["co2"]["current"] == 1533
+        print("PASS: real SQL/API handle silent sensors, earlier readings, panel temperature, and zero current", flush=True)
         db.execute("CALL refresh_continuous_aggregate('readings_hourly', now()-interval '3 hours', now()-interval '1 hour')")
-        assert db.execute("SELECT avg FROM readings_hourly WHERE device_id=%s AND metric='co2'", (stale_id,)).fetchone()[0] == 2400
+        assert db.execute("SELECT avg FROM readings_hourly WHERE device_id=%s AND metric='co2'", (earlier_id,)).fetchone()[0] == 2400
         print("PASS: hourly continuous aggregate materializes real sensor history", flush=True)
 
         # Establish a fully current building, then insert same-sensor sustained
         # evidence using real 15-minute buckets instead of mocked history.
         with db.transaction():
-            for device_id in (stale_id, ids["24e1241200000003"]):
+            for device_id in (earlier_id, ids["24e1241200000003"]):
                 for metric, value in {"co2": 1100, "temperature": 22, "humidity": 40}.items():
                     db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now, device_id, metric, value))
             for age in (60, 45, 30, 15):
                 db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, 'co2', 1100)", (now-timedelta(minutes=age), ids[EUI]))
         result = api(f"/api/buildings/{building_id}/summary")
-        assert result["data_quality"]["freshness"]["status"] == "current"
+        assert result["data_quality"]["sensors_with_readings"] == 4
         assert result["recommendations"], "Sustained evidence did not produce a recommendation"
         recommendation = result["recommendations"][0]
         assert recommendation["methodology_id"] == "co2-v2"

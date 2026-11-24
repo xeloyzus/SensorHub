@@ -122,14 +122,12 @@ Only transient database failures are retried. Permanently invalid uplinks are
 discarded with a log; an invalid/retired device cannot block other buffered
 uplinks. MQTT remains QoS 0, so uniqueness does not imply guaranteed delivery.
 
-Freshness uses the oldest required climate metric for each air sensor, rather
-than its battery/report receipt time. The summary identifies the responsible
-`device_id`, `device_label`, `metric`, `latest_reading`, `received_at` and `checked_at` in
-`data_quality.freshness`. Its description includes the exact measurement time.
-When a selected stale row was just stored, the description also includes its
-first storage timestamp. The current-reading response exposes per-metric
-`metric_received_at` alongside `metric_updated`. A recent storage time never
-silently makes a genuinely old measurement current. Ingest logs upstream clock
+Summaries average the latest stored value per sensor and metric without an age
+cutoff. Their `data_quality` object reports registered sensors, sensors with
+readings, sensors without readings, 24-hour coverage, and the latest measurement
+timestamp. The current-reading response exposes per-metric `metric_received_at`
+alongside `metric_updated`, keeping storage and measurement times distinct.
+Ingest logs upstream clock
 mismatches, subscription acknowledgement, unsupported payloads, timestamp
 rejection, and the SQLSTATE/reason for rejected writes.
 

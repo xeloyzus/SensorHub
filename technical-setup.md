@@ -138,7 +138,7 @@ when the Docker daemon starts; the migration service remains a one-shot job.
 
 Configure Samsung's integrated URL feature to open `https://<DOMAIN>/`
 automatically. The Linux PC serves the webpage; its JavaScript rotates the
-display content and requests fresh API data. The Samsung screen handles URL
+display content and requests updated API data. The Samsung screen handles URL
 startup and recovery after a power/network interruption.
 
 Use [`docs/signage-setup.md`](docs/signage-setup.md) to verify server/network

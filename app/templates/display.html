@@ -7,7 +7,7 @@
 
 {% block head %}
 <script src="/static/vendor/d3/d3.min.js?v=7.9.0"></script>
-<link rel="stylesheet" href="/static/css/display-pulse.css?v=20261101-campus-colours">
+<link rel="stylesheet" href="/static/css/display-pulse.css?v=20261125-measurements">
 {% endblock %}
 
 {% block content %}
@@ -19,7 +19,7 @@
     </div>
     <div class="display-status">
       <span id="display-source">Source --</span>
-      <span id="display-freshness">Checking data</span>
+      <span id="display-connection">Checking data</span>
       <span id="display-confidence">Coverage --</span>
       <span id="display-clock">--:--</span>
     </div>
@@ -30,8 +30,8 @@
   <section class="display-scene active" data-scene="campus-now" aria-labelledby="scene-campus-title">
     <div class="scene-copy">
       <span class="scene-label">Latest readings</span>
-      <h1 id="scene-campus-title">Campus now</h1>
-      <p id="scene-campus-summary">Loading current campus data...</p>
+      <h1 id="scene-campus-title">Campus measurements</h1>
+      <p id="scene-campus-summary">Loading campus measurements...</p>
     </div>
     <div class="display-metric-wall">
       <article>
@@ -89,16 +89,16 @@
         <span class="scene-label">Buildings</span>
         <h2 id="scene-buildings-title">Building snapshot</h2>
       </div>
-      <p>Freshness and context are shown with every value.</p>
+      <p>Latest stored measurements and trends for each building.</p>
     </div>
     <div id="display-building-grid" class="display-building-grid"></div>
   </section>
 
   <section class="display-scene" data-scene="data-quality" aria-labelledby="scene-quality-title">
     <div class="scene-copy wide">
-      <span class="scene-label">Trust the data</span>
-      <h2 id="scene-quality-title">Reading quality</h2>
-      <p id="display-quality-summary">Loading data quality...</p>
+      <span class="scene-label">Sensor coverage</span>
+      <h2 id="scene-quality-title">Available measurements</h2>
+      <p id="display-quality-summary">Loading sensor coverage...</p>
       <div id="display-quality-list" class="display-quality-list"></div>
     </div>
   </section>
@@ -147,6 +147,6 @@
 {% block scripts %}
 <script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
 <script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
-<script src="/static/js/display-pulse.js?v=20261121-live-hour-readings"></script>
+<script src="/static/js/display-pulse.js?v=20261125-measurements"></script>
 <script>initDisplayPulse();</script>
 {% endblock %}

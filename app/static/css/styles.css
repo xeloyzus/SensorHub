@@ -130,12 +130,6 @@ header h1 {
   animation: pulse 2s ease-in-out infinite;
 }
 
-#updated.stale::before {
-  background: var(--error);
-  box-shadow: 0 0 8px var(--error-glow);
-  animation: pulse 1s ease-in-out infinite;
-}
-
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(1.1); }
@@ -525,7 +519,7 @@ header h1 {
   color: var(--pulse-muted);
 }
 
-.freshness-badge {
+.source-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -538,24 +532,12 @@ header h1 {
   font-weight: 800;
 }
 
-.freshness-badge::before {
+.source-badge::before {
   content: "";
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 50%;
   background: var(--pulse-muted);
-}
-
-.freshness-badge.current::before {
-  background: var(--pulse-green);
-}
-
-.freshness-badge.delayed::before {
-  background: var(--pulse-amber);
-}
-
-.freshness-badge.stale::before {
-  background: var(--pulse-red);
 }
 
 .pulse-summary-grid {

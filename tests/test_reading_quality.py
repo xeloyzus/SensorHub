@@ -32,60 +32,51 @@ def summary(monkeypatch, sensors, history):
     return asyncio.run(analytics.get_building_summary(None, 1))
 
 
-def test_partial_outage_cannot_be_hidden_by_fresh_sensor(monkeypatch):
-    fresh = sensor(co2=600)
-    stale = sensor(device_id=2, co2=2400, age=120)
+def test_latest_values_include_every_sensor_with_measurements(monkeypatch):
+    reporting = sensor(co2=600)
+    earlier = sensor(device_id=2, co2=2400, age=120)
     missing = Sensor(device_id=3, label="Never reported", type="am103", readings={})
     panel = sensor(device_id=4, type_="ct305")
-    result = summary(monkeypatch, [fresh, stale, missing, panel], [])
-    assert result.co2.current == 600
+    result = summary(monkeypatch, [reporting, earlier, missing, panel], [])
+    assert result.co2.current == 1500
     assert result.temperature.current == 21
-    assert result.co2.source_count == 1
+    assert result.co2.source_count == 2
     assert result.data_quality.registered_sensors == 4
-    assert result.data_quality.active_sensors == 2
-    assert result.data_quality.stale_sensors == 1
+    assert result.data_quality.sensors_with_readings == 3
     assert result.data_quality.missing_sensors == 1
-    assert result.data_quality.freshness.status == "stale"
+    assert result.data_quality.latest_reading == NOW
     assert result.recommendations == []
 
 
-def test_new_temperature_does_not_freshen_old_co2(monkeypatch):
+def test_metrics_are_available_independently_of_their_timestamp(monkeypatch):
     partial = sensor()
     partial.metric_updated["co2"] = NOW - timedelta(hours=2)
     result = summary(monkeypatch, [partial], [])
-    assert result.co2.current is None
-    assert result.co2.last_known == 1100
-    assert result.co2.last_known_source_count == 1
-    assert result.co2.last_known_age_minutes == 120
+    assert result.co2.current == 1100
+    assert result.co2.source_count == 1
     assert result.temperature.current == 21
-    assert result.data_quality.stale_sensors == 1
-    cause = result.data_quality.freshness
-    assert cause.device_id == partial.device_id
-    assert cause.device_label == partial.label
-    assert cause.metric == "co2"
-    assert cause.latest_reading == partial.metric_updated["co2"]
-    assert cause.checked_at == NOW
-    assert "co2" in cause.description and partial.label in cause.description
+    assert result.data_quality.sensors_with_readings == 1
 
 
-def test_all_core_metrics_under_fifteen_minutes_never_count_as_stale(monkeypatch):
-    sensors = [sensor(device_id=i, age=i) for i in range(1, 13)]
-    result = summary(monkeypatch, sensors, [])
-    assert result.data_quality.active_sensors == 12
-    assert result.data_quality.stale_sensors == 0
+@pytest.mark.parametrize("minutes", [0, 20, 45, 120, 1884])
+def test_measurement_age_does_not_hide_latest_values(monkeypatch, minutes):
+    result = summary(monkeypatch, [sensor(age=minutes)], [])
+    assert result.co2.current == 1100
+    assert result.data_quality.sensors_with_readings == 1
     assert result.data_quality.missing_sensors == 0
-    assert result.data_quality.freshness.status == "current"
+    assert result.data_quality.latest_reading == NOW - timedelta(minutes=minutes)
+    assert set(result.data_quality.model_dump()) == {
+        "registered_sensors", "sensors_with_readings", "missing_sensors",
+        "coverage_24h", "latest_reading",
+    }
 
 
-def test_recent_storage_time_does_not_disguise_old_measurement_time(monkeypatch):
+def test_storage_time_does_not_replace_measurement_time(monkeypatch):
     old = sensor(age=1880)
     old.metric_received_at = {metric: NOW for metric in old.readings}
     result = summary(monkeypatch, [old], [])
-    cause = result.data_quality.freshness
-    assert cause.status == "stale" and cause.age_minutes == 1880
-    assert cause.received_at == NOW
-    assert cause.latest_reading == NOW-timedelta(minutes=1880)
-    assert "First stored:" in cause.description
+    assert result.data_quality.latest_reading == NOW - timedelta(minutes=1880)
+    assert result.co2.current == 1100
 
 
 def test_coverage_includes_registered_silent_air_sensors(monkeypatch):
@@ -137,24 +128,37 @@ def test_campus_current_average_is_weighted_by_reporting_sensors():
     assert result.coverage_24h == 0.75
 
 
-def test_zero_current_is_a_measurement_and_old_current_is_excluded():
+def test_zero_current_and_earlier_current_are_measurements():
     assert analytics._energy_summary([sensor(type_="ct305")], NOW).current_kw == 0
-    assert analytics._energy_summary([sensor(type_="ct305", age=120)], NOW).current_kw is None
+    assert analytics._energy_summary([sensor(type_="ct305", age=120)], NOW).current_kw == 0
 
 
-def test_future_timestamp_is_unknown():
-    assert analytics.classify_freshness(NOW + timedelta(minutes=1), NOW).status == "unknown"
+def test_future_timestamps_do_not_enter_latest_aggregates(monkeypatch):
+    result = summary(monkeypatch, [sensor(age=-1)], [])
+    assert result.co2.current is None
+    assert result.data_quality.sensors_with_readings == 0
+    assert result.data_quality.latest_reading is None
 
 
-@pytest.mark.parametrize("seconds, status", [(1199, "current"), (1200, "delayed"), (2700, "delayed"), (2701, "stale")])
-def test_freshness_boundaries_use_elapsed_time(seconds, status):
-    assert analytics.classify_freshness(NOW-timedelta(seconds=seconds), NOW).status == status
+def test_empty_campus_quality_has_no_measurements():
+    result = analytics._combine_quality([])
+    assert result.sensors_with_readings == result.registered_sensors == 0
+    assert result.latest_reading is None
 
 
-def test_campus_freshness_does_not_hide_a_stale_building():
-    fresh = analytics.classify_freshness(NOW, NOW)
-    stale = analytics.classify_freshness(NOW-timedelta(hours=2), NOW)
-    assert analytics._worst_freshness([fresh, stale]).status == "stale"
+def test_campus_quality_combines_counts_and_latest_timestamp():
+    from app.schemas.analytics import DataQuality
+    result = analytics._combine_quality([
+        DataQuality(sensors_with_readings=1, registered_sensors=2, missing_sensors=1,
+                    coverage_24h=0.5, latest_reading=NOW-timedelta(hours=2)),
+        DataQuality(sensors_with_readings=3, registered_sensors=3, missing_sensors=0,
+                    coverage_24h=1, latest_reading=NOW),
+    ])
+    assert result.sensors_with_readings == 4
+    assert result.registered_sensors == 5
+    assert result.missing_sensors == 1
+    assert result.latest_reading == NOW
+    assert result.coverage_24h == 0.8
 
 
 def test_current_query_keeps_silent_devices_and_metric_timestamps(monkeypatch):
@@ -185,15 +189,17 @@ def test_am107_contributes_to_climate_coverage_and_sustained_evidence(monkeypatc
     assert result.co2.registered_source_count == 2
     assert result.co2.sample_count == 8
     assert result.co2.mean_24h == 1000
-    assert result.data_quality.active_sensors == 2
+    assert result.data_quality.sensors_with_readings == 2
     assert result.recommendations[0].evidence["device_ids"] == [2]
 
 
-def test_am107_activity_does_not_freshen_old_climate(monkeypatch):
+def test_am107_activity_keeps_climate_timestamps_independent(monkeypatch):
     air = sensor(type_="am107", age=120)
     air.readings.update(activity=10, illumination=350)
     air.metric_updated.update(activity=NOW, illumination=NOW)
     result = summary(monkeypatch, [air], [])
-    assert result.data_quality.stale_sensors == 1
-    assert result.co2.current is None
-    assert result.temperature.current is None
+    assert result.data_quality.sensors_with_readings == 1
+    assert result.co2.current == 1100
+    assert result.temperature.current == 21
+    assert air.metric_updated["co2"] == NOW-timedelta(minutes=120)
+    assert result.recommendations == []

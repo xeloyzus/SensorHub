@@ -27,19 +27,8 @@ function formatNumber(value, decimals = 0) {
   });
 }
 
-function metricAgeText(minutes) {
-  if (minutes == null) return "age unknown";
-  if (minutes < 60) return `${minutes} min old`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  const days = Math.floor(hours / 24);
-  return days
-    ? `${days}d ${hours % 24}h ${remainingMinutes}m old`
-    : `${hours}h ${remainingMinutes}m old`;
-}
-
 function metricValue(metric, decimals = 0) {
-  const value = metric?.current ?? metric?.last_known;
+  const value = metric?.current;
   if (value == null) return "--";
   return `${formatNumber(value, decimals)} ${metric.unit}`;
 }
@@ -73,8 +62,8 @@ function renderDisplayUnavailable(error, status) {
   for (const id of ["display-co2", "display-temp", "display-energy"]) {
     document.getElementById(id).textContent = "--";
   }
-  document.getElementById("display-freshness").textContent = "Data unavailable";
-  document.getElementById("display-freshness").className = "stale";
+  document.getElementById("display-connection").textContent = "Data unavailable";
+  document.getElementById("display-connection").className = "connection-error";
   document.getElementById("display-confidence").textContent = "Coverage --";
   document.getElementById("scene-campus-summary").textContent =
     "Sensor readings are temporarily unavailable. Reconnecting automatically.";
@@ -84,18 +73,6 @@ function renderDisplayUnavailable(error, status) {
   document.getElementById("display-quality-summary").textContent =
     "No current readings are available from the configured data source.";
   document.getElementById("display-updated").textContent = "Latest reading unavailable.";
-}
-
-function freshnessText(freshness) {
-  if (!freshness) return "Freshness unknown";
-  if (freshness.status === "current") return "Current data";
-  if (freshness.status === "delayed") return "Delayed data";
-  if (freshness.status === "stale") return "Stale data";
-  return "Freshness unknown";
-}
-
-function freshnessClass(freshness) {
-  return freshness?.status || "unknown";
 }
 
 function coveragePercent(metric) {
@@ -116,8 +93,8 @@ function pickLocalBuilding(summary, config) {
   return (
     summary.buildings.find((building) => buildingMatches(building, config.building)) ||
     summary.buildings
-      .filter((building) => building.co2.current != null || building.co2.last_known != null)
-      .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0))[0] ||
+      .filter((building) => building.co2.current != null)
+      .sort((a, b) => (b.co2.current ?? 0) - (a.co2.current ?? 0))[0] ||
     summary.buildings[0]
   );
 }
@@ -139,17 +116,7 @@ function co2StatusSentence(metric, label = "Campus") {
 
 function confidenceSentence(summary) {
   const quality = summary.data_quality;
-  if (quality.freshness.status === "unknown") {
-    return "Some sensors have missing readings or invalid timestamps. Current conditions are only partially known.";
-  }
-  const coverage = coveragePercent(summary.co2);
-  if (quality.freshness.status === "stale") {
-    return `Latest campus data is stale. Current conditions may differ from these readings.`;
-  }
-  if (quality.freshness.status === "delayed") {
-    return `Campus data is delayed, but still useful for recent trends.`;
-  }
-  return `${quality.active_sensors} sensors reporting · ${coverage}% CO2 coverage · ${quality.freshness.description}`;
+  return `${quality.sensors_with_readings} of ${quality.registered_sensors} sensors have stored readings · ${coveragePercent(summary.co2)}% CO2 coverage over 24 hours.`;
 }
 
 function updateClock() {
@@ -169,28 +136,23 @@ function updateDashboardUrl(status) {
 }
 
 function renderDisplaySummary(summary) {
-  const freshness = summary.data_quality.freshness;
-  document.getElementById("display-freshness").textContent = freshnessText(freshness);
-  document.getElementById("display-freshness").className = freshnessClass(freshness);
+  document.getElementById("display-connection").textContent = "Connected";
+  document.getElementById("display-connection").className = "";
   document.getElementById("display-confidence").textContent =
-    `${summary.data_quality.active_sensors} sensors · ${coveragePercent(summary.co2)}% coverage`;
-  document.getElementById("display-updated").textContent = freshness.description;
+    `${summary.data_quality.sensors_with_readings} sensors with readings · ${coveragePercent(summary.co2)}% coverage`;
+  document.getElementById("display-updated").textContent = summary.data_quality.latest_reading
+    ? `Latest measurement: ${new Date(summary.data_quality.latest_reading).toLocaleString()}`
+    : "No measurements available";
   document.getElementById("scene-campus-summary").textContent = summary.co2.current != null
-    ? `${co2StatusSentence(summary.co2)} Average is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} reporting air sensors.`
-    : summary.co2.last_known != null
-      ? `Current CO2 data is unavailable. Last known campus average is ${formatNumber(summary.co2.last_known)} ppm across ${summary.co2.last_known_source_count} sensors; oldest included value is ${metricAgeText(summary.co2.last_known_age_minutes)}.`
-      : "No CO2 sensor readings have been received yet.";
+    ? `${co2StatusSentence(summary.co2)} Latest average is ${formatNumber(summary.co2.current)} ppm across ${summary.co2.source_count} air sensors with readings.`
+    : "No CO2 sensor readings have been received yet.";
 
   document.getElementById("display-co2").textContent = metricValue(summary.co2);
   document.getElementById("display-co2-context").textContent =
-    summary.co2.current == null && summary.co2.last_known != null
-      ? `Last known · ${metricAgeText(summary.co2.last_known_age_minutes)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`
-      : `${metricTrend(summary.co2)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`;
+    `${metricTrend(summary.co2)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`;
   document.getElementById("display-temp").textContent = metricValue(summary.temperature, 1);
   document.getElementById("display-temp-context").textContent =
-    summary.temperature.current == null && summary.temperature.last_known != null
-      ? `Last known · ${metricAgeText(summary.temperature.last_known_age_minutes)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`
-      : `${metricTrend(summary.temperature)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`;
+    `${metricTrend(summary.temperature)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`;
   document.getElementById("display-energy").textContent =
     summary.energy.current_kw == null ? "--" : `${formatNumber(summary.energy.current_kw, 1)} kW`;
 }
@@ -201,17 +163,14 @@ function renderLocalFocus(summary, config) {
 
   const isConfigured = Boolean(config.building);
   document.getElementById("scene-local-title").textContent = isConfigured
-    ? "This building now"
-    : "Highest CO2 now";
+    ? "This building"
+    : "Highest CO2 average";
   document.getElementById("display-local-summary").textContent =
-    building.co2.current == null && building.co2.last_known != null
-      ? `${building.building.name} has no current CO2 update. Last known average is ${metricValue(building.co2)}, ${metricAgeText(building.co2.last_known_age_minutes)}.`
-      : `${co2StatusSentence(building.co2, building.building.name)} Latest average is ${metricValue(building.co2)}.`;
+    `${co2StatusSentence(building.co2, building.building.name)} Latest average is ${metricValue(building.co2)}.`;
 
   const recommendation = building.recommendations[0];
   document.getElementById("display-local-card").innerHTML = `
     <article class="display-focus-card">
-      <span class="display-badge ${freshnessClass(building.data_quality.freshness)}">${escapeHtml(freshnessText(building.data_quality.freshness))}</span>
       <h3>${escapeHtml(building.building.name)}</h3>
       <div class="display-focus-values">
         <strong>${metricValue(building.co2)}</strong>
@@ -227,28 +186,21 @@ function renderDisplayBuildings(summary) {
   grid.innerHTML = summary.buildings
     .map((building) => {
       const recommendation = building.recommendations[0];
-      const freshness = building.data_quality.freshness;
       const action = recommendation
         ? `Possible action: ${recommendation.verification}`
         : "No action suggested right now.";
-      const co2Context = building.co2.current == null && building.co2.last_known != null
-        ? `Last known ${metricAgeText(building.co2.last_known_age_minutes)}`
-        : `${formatNumber(building.co2.coverage_24h * 100)}% coverage`;
-      const temperatureContext = building.temperature.current == null && building.temperature.last_known != null
-        ? `Last known ${metricAgeText(building.temperature.last_known_age_minutes)}`
-        : "";
+      const co2Context = `${formatNumber(building.co2.coverage_24h * 100)}% 24 h coverage`;
       return `
         <article class="display-building-card">
           <div>
             <h3>${escapeHtml(building.building.name)}</h3>
-            <span class="display-badge ${freshness.status}">${escapeHtml(freshnessText(freshness))}</span>
           </div>
           <div class="display-building-values">
             <span>CO2<strong>${metricValue(building.co2)}</strong></span>
             <span>Temp<strong>${metricValue(building.temperature, 1)}</strong></span>
             <span>Energy<strong>${building.energy.current_kw == null ? "--" : `${formatNumber(building.energy.current_kw, 1)} kW`}</strong></span>
           </div>
-          <p>${escapeHtml(co2Context)}${temperatureContext ? ` · Temperature ${escapeHtml(temperatureContext)}` : ""}</p>
+          <p>${escapeHtml(co2Context)}</p>
           <p>${escapeHtml(action)}</p>
         </article>
       `;
@@ -258,19 +210,17 @@ function renderDisplayBuildings(summary) {
 
 function renderCampusMap(summary) {
   const buildings = [...summary.buildings]
-    .filter((building) => building.co2.current != null || building.co2.last_known != null)
-    .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0));
+    .filter((building) => building.co2.current != null)
+    .sort((a, b) => (b.co2.current ?? 0) - (a.co2.current ?? 0));
   const highest = buildings[0];
   document.getElementById("display-map-summary").textContent = highest
-    ? highest.co2.current != null
-      ? `${highest.building.name} has the highest current CO2 average.`
-      : `${highest.building.name} has the highest last-known CO2 value; readings are stale.`
+    ? `${highest.building.name} has the highest CO2 average in the latest readings.`
     : "Building comparison is unavailable until CO2 readings arrive.";
 
-  const max = Math.max(...buildings.map((building) => building.co2.current ?? building.co2.last_known ?? 0), 1);
+  const max = Math.max(...buildings.map((building) => building.co2.current ?? 0), 1);
   document.getElementById("display-campus-map").innerHTML = buildings
     .map((building, index) => {
-      const value = building.co2.current ?? building.co2.last_known;
+      const value = building.co2.current;
       const level = Math.max(18, Math.round(((value || 0) / max) * 100));
       const tone = value >= 1000 ? "attention" : value >= 800 ? "watch" : "good";
       return `
@@ -279,9 +229,7 @@ function renderCampusMap(summary) {
           <span>${index + 1}</span>
           <h3>${escapeHtml(building.building.name)}</h3>
           <strong>${metricValue(building.co2)}</strong>
-          <em>${escapeHtml(building.co2.current == null && building.co2.last_known != null
-            ? `Last known ${metricAgeText(building.co2.last_known_age_minutes)}`
-            : freshnessText(building.data_quality.freshness))}</em>
+          <em>Latest stored average</em>
         </article>
       `;
     })
@@ -292,27 +240,15 @@ function renderDataQuality(summary) {
   const quality = summary.data_quality;
   const title = document.getElementById("scene-quality-title");
   const label = document.querySelector('[data-scene="data-quality"] .scene-label');
-  if (quality.freshness.status === "stale") {
-    label.textContent = "Data delay";
-    title.textContent = "Readings may be old";
-  } else if (quality.freshness.status === "delayed") {
-    label.textContent = "Data delay";
-    title.textContent = "Use as recent context";
-  } else if (quality.freshness.status === "unknown") {
-    label.textContent = "Missing telemetry";
-    title.textContent = "Some readings are unavailable";
-  } else {
-    label.textContent = "Trust the data";
-    title.textContent = "Data confidence";
-  }
+  label.textContent = "Sensor coverage";
+  title.textContent = "Available measurements";
 
   document.getElementById("display-quality-summary").textContent = confidenceSentence(summary);
   document.getElementById("display-quality-list").innerHTML = `
-    <span><strong>${summary.data_quality.active_sensors}</strong> reporting sensors</span>
-    <span><strong>${summary.data_quality.stale_sensors}</strong> sensors with stale readings</span>
-    <span><strong>${summary.data_quality.missing_sensors || 0}</strong> sensors with missing readings</span>
-    <span><strong>${coveragePercent(summary.co2)}%</strong> CO2 coverage</span>
-    <span><strong>${escapeHtml(freshnessText(quality.freshness))}</strong> freshness</span>
+    <span><strong>${quality.registered_sensors}</strong> registered sensors</span>
+    <span><strong>${quality.sensors_with_readings}</strong> sensors with readings</span>
+    <span><strong>${quality.missing_sensors}</strong> sensors without readings</span>
+    <span><strong>${coveragePercent(summary.co2)}%</strong> CO2 coverage over 24 hours</span>
   `;
 }
 
@@ -353,15 +289,15 @@ function renderDisplayAction(summary) {
 
 async function renderDisplayChart(summary, methodology) {
   const selected = summary.buildings
-    .filter((building) => building.co2.source_count > 0 || building.co2.last_known_source_count > 0)
-    .sort((a, b) => (b.co2.current ?? b.co2.last_known ?? 0) - (a.co2.current ?? a.co2.last_known ?? 0))[0];
+    .filter((building) => building.co2.source_count > 0)
+    .sort((a, b) => (b.co2.current ?? 0) - (a.co2.current ?? 0))[0];
   const history = selected ? await getHistory(selected.building.id, "1h") : { series: [] };
   const data = aggregateMetricHistory(history, "co2", { bucketMinutes: 5 });
   document.getElementById("scene-air-title").textContent = "Live CO2 readings · last hour";
   if (!data.length) {
     renderTimeSeriesChart({ container: "#display-co2-chart", data: [], metric: { label: "CO2" } });
     document.getElementById("display-chart-summary").textContent = selected
-      ? "No CO2 readings arrived in the last hour. Last known sensor values are labeled with their age."
+      ? "No CO2 measurements are available for the last hour."
       : "No CO2 sensor readings have been received yet.";
     return;
   }

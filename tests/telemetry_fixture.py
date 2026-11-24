@@ -79,7 +79,7 @@ def get_current(building_id: int) -> CurrentResponse | None:
             },
         ))
 
-    # Exercise stale readings for one building.
+    # Exercise earlier readings for one building.
     updated = datetime.now(timezone.utc)
     if building_id == 3:
         updated -= timedelta(minutes=60)

@@ -45,7 +45,7 @@ def test_ns_receipt_time_replaces_backdated_gateway_clock(caplog):
     assert parse_message(payload)[2] == receipt_time
 
 
-def test_receipt_metadata_does_not_freshen_queued_old_events():
+def test_receipt_metadata_does_not_retimestamp_queued_old_events():
     receipt_time = datetime.now(timezone.utc)-timedelta(hours=31)
     assert parse_message(uplink(rxInfo=[{"nsTime": receipt_time.isoformat()}]))[2] == receipt_time
 

@@ -56,8 +56,8 @@ only needs access to the dashboard server. D3 is bundled with its license.
   cards side by side, and portrait uses two columns. Charts redraw to fit.
   Phone-sized or very short windows allow scrolling within the active scene.
 - All scenes render and rotate without requiring a mouse/keyboard.
-- Values, freshness, and source status refresh after a real gateway uplink.
-- Source and freshness labels match the actual sensor readings.
+- Values and measurement timestamps update after a real gateway uplink.
+- The displayed source matches the configured sensor connection.
 - Charts render, text is readable, and the correct domain is shown.
 - Set `PUBLIC_BASE_URL` to a phone-reachable HTTP(S) origin if the display uses
   a different internal address. Check that `/api/system/status` reports the
