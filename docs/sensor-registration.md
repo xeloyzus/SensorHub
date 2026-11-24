@@ -1,7 +1,7 @@
 # Sensor inventory and registration
 
 The current deployment uses 12 AM103 sensors. The database stores planned and
-registered quantities separately in `sensor_models`; `/api/sensor-models`
+registered quantities separately (`sensor_models` and active `devices`); `/api/sensor-models`
 reports both. The project registry contains the 12 supplied AM103 DevEUIs,
 buildings, and rooms; `run.sh` creates the same inventory in ChirpStack.
 
@@ -29,23 +29,23 @@ bash run.sh
 docker compose logs migrate
 ```
 
-The migration job must finish successfully before API/ingestion start. It
-supports both new and existing volumes; do not delete a volume to upgrade it.
-Historical SQL files are recorded with checksums. Add a new migration for
-future changes instead of editing an already-applied file.
+The migration job must finish successfully before API/ingestion start. This
+release replaces the old migration chain with `0001_baseline.sql`. On an old
+installation run `bash run.sh --reset-database` once to discard application
+data/registry edits and install the complete baseline. Later starts preserve
+edits. Do not delete Compose volumes: ChirpStack keys and registrations are
+separate. See [database design](database-schema.md) for reset semantics.
 
-Migration 0003 stored the original 12/4/3 source inventory. Migration 0005
-updates the active plan to 12/0/0 and activates KEH, EOJ, ARK, and SiS. Migration
-0006 registers the supplied 12 AM103 DevEUIs with their building and room
-assignments. The ChirpStack bootstrap provisions those same devices with OTAA
+The baseline uses the active plan 12/0/0, activates KEH, EOJ, ARK and SiS, and
+registers the supplied 12 AM103 DevEUIs with their building and room assignments.
+The ChirpStack bootstrap provisions those same devices with OTAA
 credentials, the shared AppKey, and an EU868/LoRaWAN 1.0.3 device profile using
 regional parameters revision B. The AppKey is stored only in `.env`, not in
 NanitesLab's database. The default JoinEUI is Milesight's factory value; set
 `CHIRPSTACK_AM103_JOIN_EUI` in `.env` if the sensors were changed to another
-JoinEUI. The migration does not delete AM107/CT305 records or
-readings. These are one-time migrations; later location edits remain intact.
-It archives the old Library record from discovery without changing its ID,
-device associations, or readings. Existing history remains accessible by ID.
+JoinEUI. Library is initially inactive. AM107/CT305 models remain available with
+zero planned quantities. Retire devices with `is_active = FALSE`; their identity
+and history cannot be deleted accidentally. DevEUI and model are immutable.
 
 ## Verify device registration
 
@@ -61,11 +61,13 @@ device associations, or readings. Existing history remains accessible by ID.
 
 ## Automatic registration
 
-On a server with the updated project, `bash run.sh` applies migration 0006,
+On a new server, `bash run.sh` installs the complete baseline,
 starts the services, then reconciles the ChirpStack tenant, profile,
 application, gateways, devices, and OTAA keys. The API token and shared AppKey
-remain in the private `.env` file. Future devices should be added through a
-new migration and the ChirpStack bootstrap inventory together.
+remain in the private `.env` file. Existing pre-baseline installations use the
+explicit reset described above. Future devices can be registered by an
+administrator in `devices` and the ChirpStack inventory; the ingestion account
+does not have permission to create devices or edit catalogs.
 
 ## Legacy AM107 measurement interpretation
 

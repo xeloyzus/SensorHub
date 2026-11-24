@@ -36,6 +36,10 @@ grants. The generated `GRAFANA_DB_PASSWORD` is separate from the database
 owner's password. Do not share `.env` or expose port 3200 to the public
 internet.
 
+The same read-only account can be used in DBeaver on the server's loopback
+PostgreSQL port (`POSTGRES_PORT`, default 5432). API and ingestion have their own
+restricted accounts; the database owner is reserved for schema administration.
+
 `readings` retains raw data for 90 days. Grafana queries that table directly;
 the existing `readings_hourly` aggregate remains available for longer-term
 reports. An empty live chart means no selected-metric rows arrived inside the

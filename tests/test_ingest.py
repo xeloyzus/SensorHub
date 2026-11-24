@@ -8,7 +8,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from ingest.main import Database, handle_message, main, on_connect, parse_message
+import psycopg
+
+from ingest.main import Database, WriteBuffer, handle_message, main, on_connect, parse_message
 
 
 def uplink(**changes):
@@ -24,11 +26,47 @@ def test_v3_message_normalizes_eui_and_timezone():
     assert timestamp == datetime(2020, 1, 1, 10, tzinfo=timezone.utc)
 
 
-def test_v4_device_info_and_missing_time():
-    before = datetime.now(timezone.utc)
-    eui, _, timestamp = parse_message(uplink(devEUI=None, deviceInfo={"devEui": "24e124128b123456"}, time=None))
+def test_v4_device_info_uses_stable_network_time():
+    eui, _, timestamp = parse_message(uplink(devEUI=None, deviceInfo={"devEui": "24e124128b123456"}))
     assert eui == "24e124128b123456"
-    assert before <= timestamp <= datetime.now(timezone.utc)
+    assert timestamp == datetime(2020, 1, 1, 10, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("timestamp", [None, ""])
+def test_missing_time_is_rejected_instead_of_creating_duplicate_receipt_times(timestamp):
+    with pytest.raises(ValueError, match="time"):
+        parse_message(uplink(time=timestamp))
+
+
+def test_buffer_discards_invalid_uplink_without_blocking_other_devices():
+    buffer = WriteBuffer()
+    now = datetime.now(timezone.utc)
+    buffer.add([(now, 1, "humidity", 200), (now, 1, "co2", 700)])
+    buffer.add([(now, 2, "co2", 800)])
+    db = Mock()
+    db.execute_in_transaction.side_effect = [psycopg.errors.CheckViolation(), None]
+    assert buffer.flush(db)
+    assert len(buffer) == 0
+    assert db.execute_in_transaction.call_count == 2
+
+
+def test_invalid_live_payload_is_not_retried_or_buffered():
+    db, registry = Mock(), Mock()
+    registry.get.return_value = (1, "am103")
+    db.execute_in_transaction.side_effect = psycopg.errors.CheckViolation()
+    buffer = WriteBuffer()
+    handle_message(db, registry, SimpleNamespace(payload=uplink(), topic="test"), buffer)
+    assert len(buffer) == 0
+    registry.clear.assert_called_once()
+
+
+def test_transient_database_failure_preserves_uplink_for_replay():
+    db, registry = Mock(), Mock()
+    registry.get.return_value = (1, "am103")
+    db.execute_in_transaction.side_effect = psycopg.OperationalError()
+    buffer = WriteBuffer()
+    handle_message(db, registry, SimpleNamespace(payload=uplink(), topic="test"), buffer)
+    assert len(buffer) == 1
 
 
 @pytest.mark.parametrize("payload", [b"[]", b"null", b"not-json", uplink(data=123), uplink(data="invalid!"), uplink(data=""), uplink(deviceInfo=[]), uplink(deviceInfo="invalid"), uplink(devEUI="wrong"), uplink(time=123), uplink(time="2020-01-01T12:00:00"), uplink(time=(datetime.now(timezone.utc)+timedelta(days=1)).isoformat())])

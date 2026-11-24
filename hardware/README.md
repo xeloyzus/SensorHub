@@ -55,12 +55,13 @@ from that file, not independently verified supplier specifications.
    ChirpStack Gateway Bridge on port 1700; register each matching gateway EUI
    and EU868 radio configuration in ChirpStack. Edge-to-central buffering/replay
    is not implemented.
-5. **Sensor scope:** migration `0005_am103_only_deployment.sql` sets the active
+5. **Sensor scope:** the complete `0001_baseline.sql` sets the active
    planned inventory to 12 AM103 and phases out AM107/CT305. Their decoder and
-   historical-data support remains available without deleting old records.
-6. **Buildings:** migration 0003 activates KEH, EOJ, ARK, and SiS. The old Library
-   record is archived from discovery while preserving its devices and history.
-   Register the 12 AM103 DevEUIs and room placements; none are in the CSV.
+   metric definitions remain available. The pre-baseline database requires an
+   explicit application-only reset; see `docs/database-schema.md`.
+6. **Buildings:** the baseline activates KEH, EOJ, ARK and SiS, with Library
+   inactive. The supplied 12 AM103 DevEUIs and room placements are seeded;
+   none are in the original hardware CSV.
 7. **Displays:** preserve the source description until the exact TV SKU and
    size are confirmed. Verify the served webpage, data refresh, and automatic
    startup using the Samsung screens' built-in URL feature before installation.

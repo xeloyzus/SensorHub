@@ -17,6 +17,7 @@ def main():
             env[key] = value
     env["MQTT_PORT"] = "0"
     env["INTEGRATION_API_PORT"] = "0"
+    env["POSTGRES_PORT"] = "0"
     project = "sensorhub-integration-" + uuid.uuid4().hex[:12]
     compose = [
         "docker", "compose", "--progress", "plain", "-p", project,
@@ -29,6 +30,7 @@ def main():
 
     try:
         run("up", "-d", "--build", "--quiet-pull", "--wait", "--wait-timeout", "120", "mosquitto", "timescaledb", "ingest", "api")
+        run("exec", "-T", "ingest", "python", "/tests/database_check.py")
         run("exec", "-T", "ingest", "python", "/tests/integration_check.py")
         run("restart", "mosquitto")
         # A broker restart recreates credentials on an existing volume and
@@ -36,7 +38,7 @@ def main():
         run("up", "-d", "--wait", "--wait-timeout", "60", "mosquitto", "timescaledb", "ingest", "api")
         run("exec", "-T", "ingest", "python", "/tests/integration_check.py")
     except subprocess.CalledProcessError:
-        run("logs", "--tail", "40", "mosquitto", "timescaledb", "ingest", "api", check=False)
+        run("logs", "--tail", "40", "migrate", "ingest", "api", check=False)
         raise
     finally:
         # This name was generated above for this run, never a user deployment.

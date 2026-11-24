@@ -145,7 +145,7 @@ def test_current_query_keeps_silent_devices_and_metric_timestamps(monkeypatch):
     assert result.sensors[0].metric_updated["temperature"] == NOW-timedelta(hours=2)
     assert result.sensors[1].updated is None
     assert result.sensors[1].readings == {}
-    assert "LEFT JOIN readings" in cursor.execute.call_args_list[1].args[0]
+    assert "LEFT JOIN LATERAL" in cursor.execute.call_args_list[1].args[0]
 
 
 def test_am107_contributes_to_climate_coverage_and_sustained_evidence(monkeypatch):

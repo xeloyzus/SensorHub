@@ -163,24 +163,31 @@ refers to the screen itself. Later, change `DOMAIN`, `HTTP_PORT`, and
    sensors to avoid duplicate ingestion. See
    [`hardware/gateway-config/README.md`](hardware/gateway-config/README.md).
 
-## Database upgrades
+## Database baseline and startup
 
-`bash run.sh` validates the existing `.env` and runs the `migrate` job before API/ingestion start.
-It applies ordered SQL migrations once, records their checksums, and rolls back
-a failed migration. Existing TimescaleDB volumes are upgraded in place.
-Migration `0003_sensor_inventory.sql` adds legacy model capabilities, original
-sensor quantities, EOJ and SiS. Migration `0005_am103_only_deployment.sql`
-sets planned quantities to 12 AM103, 0 AM107, and 0 CT305. Legacy Library devices/history are preserved; that building is
-archived from active discovery, and its existing ID remains directly queryable.
-Migration `0006_am103_device_registry.sql` registers the supplied 12 AM103
-DevEUIs and room assignments automatically; it does not store AppKeys.
+The complete schema is `app/db/migrations/0001_baseline.sql`: normalized model
+capabilities and metric units/ranges, validated foreign keys, immutable device
+identity, a unique device/metric/time reading key, separate runtime accounts,
+and retention/aggregation policies. It seeds the 12 supplied AM103 DevEUIs,
+room assignments and current 12/0/0 model plan without AppKeys or fake readings.
+Library is inactive; KEH, EOJ, ARK and SiS are active.
+
+This is a fresh-start release. To replace an installation using the old six
+migrations, run **`bash run.sh --reset-database`** once. It discards application
+readings, hourly summaries and registry edits and rebuilds the baseline. It
+preserves `.env`, ChirpStack data/keys, MQTT volumes and Grafana configuration.
+Subsequent starts use `bash run.sh`, preserving data and administrative edits.
+Ordinary startup refuses the old ledger instead of partially applying the new
+schema. Do not delete all Compose volumes to reset the application database.
+
+The launcher adds missing runtime credentials, stops application clients, and
+runs the migration job before API/ingestion start. Schema/seed/role changes are
+transactional and checksum-verified; installed migrations must not be edited.
+See [`docs/database-schema.md`](docs/database-schema.md) for the ER diagram,
+constraints, permissions, reset semantics, and DBeaver connection instructions.
 `scripts/provision_chirpstack.py` provisions the corresponding ChirpStack
 resources, uses regional parameters revision B, and keeps the shared AppKey
 inside `.env` rather than source control or the NanitesLab database.
-Migration `0004_reading_integrity.sql` adds finite-value, device-ID, and nonempty
-label/metric checks for new writes, plus query indexes. Existing records are
-preserved. The migration runner records checksums; applied SQL files must not
-be edited. Review any historical constraint violations before validating them.
 
 If Compose reports missing `DOMAIN`, database, Grafana, or MQTT passwords,
 it has not started the services. Run `bash run.sh` from this checkout to
@@ -204,8 +211,8 @@ without printing secrets using `docker compose --env-file .env config --quiet`.
 
 - The active fleet is 12 AM103 sensors: about 1,152 uplinks/day at one report
   per sensor every 15 minutes.
-- Raw readings kept 90 days, then rolled into hourly averages
-  (`app/db/migrations/0002_retention.sql`). 20 GB of disk covers years of operation.
+- Raw readings kept for 90 days; hourly summaries produced continuously and kept indefinitely
+  (`app/db/migrations/0001_baseline.sql`). Measure actual storage growth when sizing disks.
 
 ## Samsung signage screens
 
@@ -263,9 +270,10 @@ one hour apart (within five minutes) and reject gaps over 20 minutes.
 Ingestion validates JSON types, DevEUIs, base64, and timezone-aware timestamps,
 and rejects clocks more than five minutes in the future. Known sensor metadata
 is skipped safely before decoding measurements. Metric writes for each uplink
-are transactional. Durable replay/deduplication during database outages and
-historical sensor replay remain follow-up work; subscription delivery is
-currently QoS 0.
+are transactional, and database keys deduplicate live writes and buffered
+replay. Missing timestamps are rejected. Durable delivery across process loss
+and historical sensor payload replay remain follow-up work; subscription
+delivery is currently QoS 0.
 
 ## Development checks
 
@@ -289,8 +297,9 @@ This builds the core services and migration job in a uniquely named Compose proj
 synthetic credentials, fresh database volumes, and random loopback ports.
 It verifies MQTT authentication and role ACLs, decoder metadata, malformed
 message handling, real SQL/API summaries, hourly aggregation, recommendations,
-HTML routes, AM107's ten telemetry fields, inventory quantities, upgrades that
-preserve existing readings, and broker restart with existing credential files. It removes
+HTML routes, AM107's ten telemetry fields, inventory quantities, concurrent
+deduplication, least-privilege database roles, transactional baseline/reset
+behavior, and broker restart with existing credential files. It removes
 its own containers and volumes afterward; production data is never reused.
 The startup probe repeats until the QoS 0 subscription is ready, so this check
 does not establish durable message delivery during outages.

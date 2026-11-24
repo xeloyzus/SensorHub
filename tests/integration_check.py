@@ -5,10 +5,8 @@ integration database. Payloads and device registrations are synthetic.
 """
 
 import base64
-import csv
 import json
 import os
-from pathlib import Path
 import threading
 import time
 from contextlib import contextmanager
@@ -82,39 +80,16 @@ def api(path):
         return json.load(response)
 
 
-def verify_existing_database_upgrade(db):
-    # Roll back the entire schema fixture; production schemas are never used.
-    with db.transaction(force_rollback=True):
-        db.execute("CREATE SCHEMA integration_upgrade")
-        db.execute("SET LOCAL search_path TO integration_upgrade, public")
-        db.execute("CREATE TABLE buildings (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, slug TEXT UNIQUE NOT NULL)")
-        db.execute("INSERT INTO buildings (name, slug) VALUES ('KEH', 'keh'), ('Library', 'library'), ('ARK', 'ark')")
-        db.execute("CREATE TABLE devices (id SERIAL PRIMARY KEY, eui TEXT UNIQUE, building_id INTEGER REFERENCES buildings(id), type TEXT CHECK (type IN ('am103', 'ct305')), label TEXT, room TEXT)")
-        db.execute("INSERT INTO devices (eui, building_id, type, label) VALUES ('24e1241200000099', 2, 'am103', 'Existing device')")
-        db.execute("CREATE TABLE readings (time TIMESTAMPTZ NOT NULL DEFAULT now(), device_id INTEGER, metric TEXT, value DOUBLE PRECISION)")
-        db.execute("INSERT INTO readings (device_id, metric, value) VALUES (1, 'co2', 700)")
-        source = Path('/migrations/0003_sensor_inventory.sql').read_text()
-        db.execute(source, prepare=False)
-        db.execute(source, prepare=False)  # safe retry after an interrupted deployment
-        # Historical records stay intact while new malformed writes are blocked.
-        db.execute(Path('/migrations/0004_reading_integrity.sql').read_text(), prepare=False)
-        db.execute(Path('/migrations/0005_am103_only_deployment.sql').read_text(), prepare=False)
-        assert db.execute("SELECT value FROM readings WHERE device_id=1").fetchone()[0] == 700
-        assert db.execute("SELECT building_id FROM devices WHERE id=1").fetchone()[0] == 2
-        assert db.execute("SELECT is_active FROM buildings WHERE id=2").fetchone()[0] is False
-        db.execute("INSERT INTO devices (eui, building_id, type, label) SELECT '24e1241200000098', id, 'am107', 'New AM107' FROM buildings WHERE slug='sis'")
-        assert db.execute("SELECT count(*) FROM devices").fetchone()[0] == 2
-    print("PASS: upgrade preserves existing devices/history and accepts AM107 without relabelling Library", flush=True)
-
-
 def run():
-    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as db:
+    with psycopg.connect(os.environ["ADMIN_DATABASE_URL"], autocommit=True) as db:
         if db.execute("SELECT current_database()").fetchone()[0] != "sensorhub_integration":
             raise RuntimeError("Refusing to write to a non-test database")
         assert db.execute("SELECT extversion FROM pg_extension WHERE extname='timescaledb'").fetchone()
         assert db.execute("SELECT to_regclass('readings_hourly')").fetchone()[0]
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 5
-        verify_existing_database_upgrade(db)
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        # Keep deployment registry rows, while isolating these smoke-test sensors
+        # from the seeded active fleet. This is a disposable test database.
+        db.execute("UPDATE devices SET is_active = FALSE WHERE label NOT LIKE 'Integration %'")
         active = dict(db.execute("SELECT slug, id FROM buildings WHERE is_active").fetchall())
         assert set(active) == {"kjolv-egelands-hus", "arne-rettedals-hus", "eoj", "sis"}
         building_id = active['eoj']
@@ -202,9 +177,9 @@ def run():
         panel_id = ids["24e1241200000004"]
         with db.transaction():
             for metric, value in {"co2": 2400, "temperature": 30, "humidity": 60}.items():
-                db.execute("INSERT INTO readings VALUES (%s, %s, %s, %s)", (now-timedelta(hours=2), stale_id, metric, value))
+                db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now-timedelta(hours=2), stale_id, metric, value))
             for metric, value in {"temperature": 80, "current_1": 0, "current_2": 0, "current_3": 0}.items():
-                db.execute("INSERT INTO readings VALUES (%s, %s, %s, %s)", (now, panel_id, metric, value))
+                db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now, panel_id, metric, value))
 
         eventually(lambda: api("/api/system/status")["mode"] == "live", "API did not enter live mode")
         current = api(f"/api/buildings/{building_id}/current")
@@ -230,9 +205,9 @@ def run():
         with db.transaction():
             for device_id in (stale_id, ids["24e1241200000003"]):
                 for metric, value in {"co2": 1100, "temperature": 22, "humidity": 40}.items():
-                    db.execute("INSERT INTO readings VALUES (%s, %s, %s, %s)", (now, device_id, metric, value))
+                    db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, %s, %s)", (now, device_id, metric, value))
             for age in (60, 45, 30, 15):
-                db.execute("INSERT INTO readings VALUES (%s, %s, 'co2', 1100)", (now-timedelta(minutes=age), ids[EUI]))
+                db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (%s, %s, 'co2', 1100)", (now-timedelta(minutes=age), ids[EUI]))
         result = api(f"/api/buildings/{building_id}/summary")
         assert result["data_quality"]["freshness"]["status"] == "current"
         assert result["recommendations"], "Sustained evidence did not produce a recommendation"
@@ -249,7 +224,7 @@ def run():
         for invalid in (float('nan'), float('inf'), float('-inf')):
             try:
                 with db.transaction():
-                    db.execute("INSERT INTO readings VALUES (now(), %s, 'co2', %s)", (ids[EUI], invalid))
+                    db.execute("INSERT INTO readings (time, device_id, metric, value) VALUES (now(), %s, 'co2', %s)", (ids[EUI], invalid))
             except psycopg.errors.CheckViolation:
                 pass
             else:

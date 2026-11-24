@@ -151,11 +151,11 @@ access, data refresh, and restart behaviour on the actual displays.
 - These are planning counts; actual
   message/storage volume depends on payloads and occupancy reporting cadence.
 - Raw readings are retained for 90 days; hourly aggregates are kept indefinitely
-  (`app/db/migrations/0002_retention.sql`). Retention refresh/replay behaviour
-  must be considered before enabling historical sensor uploads.
+  (`app/db/migrations/0001_baseline.sql`). Admission and aggregate refresh
+  cover 88 and 89 days respectively; see `docs/database-schema.md` for exact semantics.
 - Ingestion currently subscribes at QoS 0. Database-outage replay, persistent
-  edge buffering, and durable deduplication are follow-up work. A local broker
-  alone does not establish offline data resilience.
+  edge buffering are follow-up work. Database keys enforce deduplication of
+  timestamped measurements, but a local broker does not establish offline delivery.
 
 ## 8. Remaining implementation and installation work
 

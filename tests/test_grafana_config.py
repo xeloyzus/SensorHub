@@ -31,4 +31,6 @@ def test_grafana_uses_internal_read_only_database_login():
     assert "password: $GRAFANA_DB_PASSWORD" in datasource
     assert "GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD" in compose
     assert "./grafana/provisioning:/etc/grafana/provisioning:ro" in compose
-    assert "CREATE ROLE" in migrator and "GRANT SELECT ON ALL TABLES" in migrator
+    assert '"grafana_reader": "GRAFANA_DB_PASSWORD"' in migrator
+    assert "GRANT SELECT ON {} TO {}" in migrator
+    assert "sensorhub_api:" in compose and "sensorhub_ingest:" in compose

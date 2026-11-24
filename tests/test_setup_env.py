@@ -25,9 +25,11 @@ def test_runtime_secrets_are_added_without_replacing_existing_values(tmp_path):
     target.write_text('MQTT_BRIDGE_PASSWORD=keep-this\nGRAFANA_DB_PASSWORD=\n')
     added = ensure_runtime_secrets(target)
     values = dict(line.split('=', 1) for line in target.read_text().splitlines())
-    assert added == ['GRAFANA_DB_PASSWORD']
+    assert added == ['GRAFANA_DB_PASSWORD', 'API_DB_PASSWORD', 'INGEST_DB_PASSWORD']
     assert values['MQTT_BRIDGE_PASSWORD'] == 'keep-this'
     assert re.fullmatch('[0-9a-f]{64}', values['GRAFANA_DB_PASSWORD'])
+    assert re.fullmatch('[0-9a-f]{64}', values['API_DB_PASSWORD'])
+    assert re.fullmatch('[0-9a-f]{64}', values['INGEST_DB_PASSWORD'])
     assert ensure_runtime_secrets(target) == []
 
 

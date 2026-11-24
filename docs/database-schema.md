@@ -1,48 +1,177 @@
-# Database schema and upgrades
+# Database design and operation
 
-The application reads TimescaleDB only. Generated telemetry lives in `tests/`
-and is never copied into the API or ingestion image. Migrations seed building
-and sensor-model registries; they do not insert sensor readings.
+The application has one PostgreSQL 16 / TimescaleDB 2.17.2 database. The complete
+definition is [`0001_baseline.sql`](../app/db/migrations/0001_baseline.sql).
+This replaces the six pre-baseline migrations; it is deliberately a fresh-start
+release, not an in-place conversion of their historical data.
 
-| Table | Purpose |
+ChirpStack's PostgreSQL database and Redis are separate, vendor-managed network
+server state. Do not merge their tables into the application's schema or reset
+them to rebuild sensor telemetry.
+
+## Install or replace the old application database
+
+On the Linux server, use the project launcher:
+
+```bash
+# Existing pre-baseline installation: discards application data/registry edits.
+bash run.sh --reset-database
+
+# Subsequent starts: validates the baseline and preserves data and edits.
+bash run.sh
+```
+
+For a brand-new installation without `.env`, use `bash run.sh --local` or
+`bash run.sh --domain YOUR_HOSTNAME`. Keep an existing `.env`; the launcher adds
+missing runtime passwords without replacing existing credentials.
+
+`--reset-database` stops API, ingestion and Grafana, then rebuilds only the known
+application objects. It removes raw readings, hourly summaries, migration
+history and registry edits, and re-seeds the supplied 12 AM103 devices. It does
+not remove Docker volumes, ChirpStack registrations/keys, MQTT data, or Grafana
+configuration. Unknown dependent objects cause rollback, rather than being
+removed with `CASCADE`. Ordinary startup refuses an old or unknown migration
+ledger and gives the explicit reset command.
+
+DDL, seed data, migration records and role grants commit in one transaction.
+An advisory lock serializes installers. Checksums ignore Windows/Linux newline
+differences; an edited applied baseline is rejected. Once this new baseline is
+deployed, future schema changes still require versioned migrations. Rewriting
+an installed migration silently is never a deployment strategy.
+Transactions that collide with Timescale background jobs retry up to three
+times after rollback. SQL/constraint errors are reported without retrying.
+
+## Relational model
+
+```mermaid
+erDiagram
+    buildings ||--o{ devices : contains
+    sensor_models ||--o{ devices : identifies
+    sensor_models ||--|{ sensor_model_metrics : supports
+    metrics ||--o{ sensor_model_metrics : defines
+    devices ||--o{ readings : reports
+    metrics ||--o{ readings : measures
+```
+
+| Object | Key and purpose |
 | --- | --- |
-| `buildings` | Stable building IDs, unique names/slugs, active discovery flag |
-| `sensor_models` | Supported model types, metric capabilities, planned quantities |
-| `devices` | Unique DevEUI, building/model foreign keys, label and room |
-| `readings` | Timestamped metric values, partitioned by time as a hypertable |
-| `readings_hourly` | Continuous aggregate of hourly averages/minima/maxima |
-| `schema_migrations` | Applied filenames, SHA-256 checksums and timestamps |
+| `buildings` | Identity PK; unique name and slug; archive with `is_active` |
+| `sensor_models` | Model code PK; name and planned quantity |
+| `metrics` | Canonical metric PK; name, unit, physical range and gauge/counter kind |
+| `sensor_model_metrics` | `(model_type, metric)` PK; normalized capabilities and display order |
+| `devices` | Identity PK; unique lowercase DevEUI; model/building FKs, label, current room and retirement flag |
+| `readings` | `(device_id, metric, time)` PK; canonical value and separate database receipt time |
+| `readings_hourly` | Derived hourly sample count, sum, average, minimum and maximum |
+| `schema_migrations` | Applied filename PK, checksum and installation timestamp; owner access only |
 
-Devices are registered explicitly; incoming messages from unknown DevEUIs are
-ignored. Planned quantities are separate from installed devices. The archived
-Library record keeps its ID, devices and readings while active discovery uses
-KEH, EOJ, ARK and SiS.
+Generated identity IDs are internal references; DevEUI identifies physical
+hardware. Model and DevEUI cannot be changed on an existing device. A replacement
+device gets another row. Use `is_active = FALSE` to retire hardware: deleting
+devices is prohibited even after their raw data expires, so indefinite hourly
+history keeps its identity. Buildings/models/metrics use restrictive foreign
+keys. Blank labels, malformed DevEUIs, unknown models, unsupported metrics,
+non-finite values and readings outside their canonical physical range are
+rejected by the database. All baseline constraints are validated from day one.
 
-The migration runner applies each new SQL file in a transaction under a session
-advisory lock. Failed files roll back and are not recorded. Applied migration
-files must not change; add another numbered file for subsequent upgrades.
-Back up the database before deployment using the existing README procedure.
+Capabilities are rows, not an array stored in `sensor_models`. The inventory API
+assembles its existing `metrics` list from those rows, preserving the client
+contract. AM103 has 12 planned devices; AM107 and CT305 have zero planned units
+but retain their decoders and metric definitions. Library is inactive; KEH,
+EOJ, ARK and SiS are active. No synthetic readings or LoRaWAN AppKeys are seeded.
 
-Migration 0004 adds indexes for device/building and per-metric history lookups.
-New records require a lowercase 16-character hexadecimal DevEUI, a nonblank
-device label and metric, and a finite numeric reading. These checks are added
-as `NOT VALID` so historical invalid records are preserved while new writes
-are checked. Current/history queries exclude non-finite and future readings.
-Existing foreign keys and retention policies remain in effect.
+Room/building identify a device's **current placement**. Historical queries
+group by that current placement, not by a historical room assignment. If a
+device is moved, its displayed history moves with it. A temporal installation
+registry would be a separate feature if historical location attribution is
+required. Labels and rooms can be edited without changing measurement identity.
 
-Timestamped uplinks are idempotent through the ingest service: a transaction
-lock serializes a device's writes, and each timestamp/device/metric is inserted
-only if absent. Historical duplicates are not removed. Direct database writers
-must use the same convention. Uplinks without a network timestamp receive the
-arrival time, so gateways should always include their original timestamp.
+## Measurements, time and concurrency
 
-Raw readings have a 90-day retention policy. Hourly aggregates are retained
-indefinitely and refreshed on an hourly schedule. The API uses read-only
-transactions with a 15-second statement timeout; migrations and ingestion
-use their own write connections. `/health` probes the database and returns
-HTTP 503 if it cannot be reached.
+`time` is the timezone-aware ChirpStack network event timestamp, normalized to
+UTC. It is not a claim that the sensor sampled at that precise instant.
+Messages without a timestamp are rejected: generating a receipt timestamp would
+make retransmissions appear to be new measurements. `received_at` is a separate
+database timestamp and records when the first copy was accepted.
 
-Run `python tests/run_integration.py` to test initialization, upgrades,
-ingestion, duplicate delivery, invalid data, aggregates and API responses in
-a separate database and disposable Docker volumes. It never selects a
-production database, and cleans up its own containers and volumes afterward.
+One device can have one value per metric and network timestamp. Both live writes
+and buffered replay use `INSERT ... ON CONFLICT (device_id, metric, time) DO
+NOTHING`; the first committed value wins and its receipt time stays unchanged.
+The primary key enforces this across all writers. No advisory device locks or
+check-then-insert race is needed. The ingest account cannot update/delete data.
+
+The database rejects timestamps older than 88 days or more than five minutes in
+the future. The API excludes future timestamps when showing current/history
+values. Supported metric/range validation uses a trigger with a fixed search
+path; it locks catalog/device rows while validating to serialize concurrent
+retirement/catalog changes. Clock-dependent admission rules use a trigger,
+not a time-dependent `CHECK` constraint.
+
+The in-memory retry buffer is bounded and is not durable across process loss.
+Only transient database failures are retried. Permanently invalid uplinks are
+discarded with a log; an invalid/retired device cannot block other buffered
+uplinks. MQTT remains QoS 0, so uniqueness does not imply guaranteed delivery.
+
+Canonical units are fixed for a metric key (for example `co2` in ppm,
+`temperature` in degC, phase current in A, cumulative phase current in Ah).
+Changing a unit's meaning requires a new metric/conversion, not editing the
+unit on historical data. Physical ranges are admission checks, not health or
+comfort thresholds. CT305 totals are counters: averages are not energy usage
+or consumption; any derived consumption must handle resets and counter deltas.
+
+## Indexes, aggregates and retention
+
+The hypertable has seven-day chunks. Its composite PK includes the time
+partition key and supports device/metric/latest lookups. Additional indexes
+serve device/time, metric/time, and time-only range queries; foreign-key lookup
+columns in ordinary tables are indexed as well.
+
+Raw retention is 90 days and operates on complete chunks, so it can retain a
+little more than 90 days. Hourly summaries are indefinite. Each hourly refresh
+covers the previous 89 days up to one hour ago: accepted late arrivals get
+materialized, and raw retention stays outside the refresh boundary. The newest
+hour is available through raw data; summary materialization is asynchronous.
+Admission stops at 88 days to leave a day for full-hour bucket alignment and
+scheduled processing before a late sample leaves the refresh window.
+
+For a combined average, use `sum(sum) / sum(sample_count)` rather than averaging
+hourly averages. Raw deletion must use the retention policy, not arbitrary
+historical row deletion followed by a refresh. Backfill outside the admission
+window requires an explicit maintenance procedure and aggregate refresh.
+
+## Permissions and DBeaver
+
+| Account | Permission | Secret in `.env` |
+| --- | --- | --- |
+| `POSTGRES_USER` | Schema/role administration by the migration job | `POSTGRES_PASSWORD` |
+| `sensorhub_api` | SELECT on application data; read-only transactions | `API_DB_PASSWORD` |
+| `sensorhub_ingest` | Read registration/catalog and measurement keys; INSERT measurement columns | `INGEST_DB_PASSWORD` |
+| `grafana_reader` | SELECT on application data; read-only transactions | `GRAFANA_DB_PASSWORD` |
+
+Runtime accounts do not receive migration-ledger access, CREATE, UPDATE, DELETE
+or default grants to future tables. The reading validation trigger executes
+with its owner's rights solely to validate/lock catalog rows. These accounts
+are for one application deployment per PostgreSQL instance.
+
+DBeaver can use the PostgreSQL driver at `127.0.0.1`, port `POSTGRES_PORT`
+(default 5432), database `POSTGRES_DB`, user `grafana_reader`, and password
+`GRAFANA_DB_PASSWORD`. For another computer, SSH-forward this loopback port.
+Use the owner only when deliberately administering the schema/registries.
+
+## Validation
+
+```bash
+python -m pytest -q
+python tests/run_integration.py
+```
+
+The integration runner uses synthetic credentials, a unique Compose project,
+random loopback ports and disposable volumes. Database contract checks create
+their own uniquely named test database and verify baseline installation,
+restart idempotency, concurrent deduplication, constraints, account permissions,
+late-data aggregates, checksum handling, explicit reset and rollback. The MQTT
+and API checks then verify actual payload decoding and dashboard behavior,
+including a broker restart. No user database/volume is selected for cleanup.
+
+Design references: [PostgreSQL constraints](https://www.postgresql.org/docs/16/ddl-constraints.html),
+[TimescaleDB unique keys](https://www.tigerdata.com/docs/build/performance-optimization/hypertables-and-unique-indexes),
+[aggregate refresh and retention](https://www.tigerdata.com/docs/build/continuous-aggregates/refresh-policies).

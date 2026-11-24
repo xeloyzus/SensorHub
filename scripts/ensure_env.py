@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 
-RUNTIME_SECRETS = ("MQTT_BRIDGE_PASSWORD", "GRAFANA_DB_PASSWORD")
+RUNTIME_SECRETS = ("MQTT_BRIDGE_PASSWORD", "GRAFANA_DB_PASSWORD", "API_DB_PASSWORD", "INGEST_DB_PASSWORD")
 
 
 def ensure_runtime_secrets(target: Path) -> list[str]:
@@ -30,7 +30,8 @@ def ensure_runtime_secrets(target: Path) -> list[str]:
 
     descriptor, temporary_name = tempfile.mkstemp(prefix=".env.", dir=target.parent)
     try:
-        os.fchmod(descriptor, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
         os.replace(temporary_name, target)

@@ -5,7 +5,13 @@ services:
     ports:
       - "127.0.0.1:${INTEGRATION_API_PORT:-18080}:8000"
   ingest:
+    environment:
+      PYTHONPATH: /app
+      ADMIN_DATABASE_URL: postgresql://sensorhub:integration-database-only@timescaledb:5432/sensorhub_integration
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
+      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
     volumes:
       - ./tests:/tests:ro
-      - ./app/db/migrations:/migrations:ro
+      - ./app:/app/app:ro
       - ./hardware:/hardware:ro

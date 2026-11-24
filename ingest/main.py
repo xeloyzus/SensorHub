@@ -72,7 +72,8 @@ class Database:
                 with self.conn.transaction():
                     statement_factory(self.conn)
                 return
-            except psycopg.Error:
+            except (psycopg.OperationalError, psycopg.InterfaceError,
+                    psycopg.errors.SerializationFailure, psycopg.errors.DeadlockDetected):
                 self.reset()
                 if attempts >= 3:
                     raise
@@ -105,7 +106,7 @@ class DeviceRegistry:
         if entry is not None and now - entry[0] < self._ttl:
             return entry[1]
         row = self._db.conn.execute(
-            "SELECT id, type FROM devices WHERE eui = %s", (eui,)
+            "SELECT id, type FROM devices WHERE eui = %s AND is_active", (eui,)
         ).fetchone()
         if row is None:
             # Do not cache misses — registration must take effect immediately.
@@ -142,15 +143,12 @@ def parse_message(payload: bytes) -> tuple[str, bytes, datetime]:
     if not isinstance(eui, str) or re.fullmatch(r"[0-9a-fA-F]{16}", eui) is None:
         raise ValueError("devEUI must contain 16 hexadecimal characters")
 
-    # Prefer the network server timestamp; fall back to 'now'.
+    # A stable network timestamp is required for idempotency. Synthesizing 'now'
+    # would turn every retransmission into a different measurement.
     iso = data.get("time")
-    if iso is not None and (not isinstance(iso, str) or not iso):
+    if not isinstance(iso, str) or not iso:
         raise ValueError("time must be an ISO timestamp")
-    ts = (
-        datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        if iso
-        else datetime.now(timezone.utc)
-    )
+    ts = datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
     if ts.tzinfo is None:
         raise ValueError("time must include a timezone")
@@ -191,9 +189,19 @@ class WriteBuffer:
     def flush(self, db: Database) -> bool:
         """Try to persist all buffered rows. Returns True when the buffer is empty."""
         while self._rows:
-            batch = list(self._rows)
+            # Replay one uplink at a time. A retired device or invalid payload
+            # must not poison the entire buffer and block unrelated sensors.
+            key = self._rows[0][:2]
+            batch = []
+            for row in self._rows:
+                if row[:2] != key:
+                    break
+                batch.append(row)
             try:
                 db.execute_in_transaction(_insert_rows(batch))
+            except (psycopg.IntegrityError, psycopg.DataError):
+                self.dropped += len(batch)
+                log.warning("Discarding %d buffered rows rejected by database constraints", len(batch))
             except psycopg.Error:
                 log.warning("Still unable to flush %d buffered rows", len(batch))
                 return False
@@ -209,8 +217,8 @@ def _insert_rows(rows: list[tuple]):
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO readings (time, device_id, metric, value) "
-                "SELECT %s, %s, %s, %s WHERE NOT EXISTS ("
-                "SELECT 1 FROM readings WHERE time = %s AND device_id = %s AND metric = %s)",
+                "VALUES (%s, %s, %s, %s) "
+                "ON CONFLICT (device_id, metric, time) DO NOTHING",
                 rows,
             )
     return statement
@@ -247,18 +255,14 @@ def handle_message(db: Database, registry: DeviceRegistry, msg: mqtt.MQTTMessage
         log.debug("No telemetry decoded for %s on %s", eui, msg.topic)
         return
 
-    rows = [(ts, device_id, metric, value, ts, device_id, metric) for metric, value in metrics.items()]
-
-    def write(conn):
-        with conn.cursor() as cur:
-            # Serialize writes for one device across ingest workers. Repeated
-            # uplinks must not inflate averages or historical coverage. Existing
-            # duplicates remain untouched, so old databases upgrade without loss.
-            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (20261101, device_id))
-            _insert_rows(rows)(conn)
+    rows = [(ts, device_id, metric, value) for metric, value in metrics.items()]
 
     try:
-        db.execute_in_transaction(write)
+        db.execute_in_transaction(_insert_rows(rows))
+    except (psycopg.IntegrityError, psycopg.DataError):
+        registry.clear()
+        log.warning("Database rejected telemetry for %s; checking device registration and payload is required", eui)
+        return
     except psycopg.Error:
         log.exception("Insert failed for device %s after retries", device_id)
         if buffer is not None:

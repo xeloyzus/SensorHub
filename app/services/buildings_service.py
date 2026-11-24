@@ -31,14 +31,16 @@ async def get_current(db: AsyncConnection, building_id: int) -> CurrentResponse 
 
         await cur.execute(
             """
-            SELECT DISTINCT ON (d.id, r.metric)
-                   d.id, d.label, d.type, r.metric, r.value, r.time
+            SELECT d.id, d.label, d.type, r.metric, r.value, r.time
             FROM devices d
-            LEFT JOIN readings r ON d.id = r.device_id
-              AND r.value > '-Infinity'::double precision
-              AND r.value < 'Infinity'::double precision
-              AND r.time <= now()
-            WHERE d.building_id = %s
+            LEFT JOIN sensor_model_metrics sm ON sm.model_type = d.type
+            LEFT JOIN LATERAL (
+                SELECT r.metric, r.value, r.time FROM readings r
+                WHERE r.device_id = d.id AND r.metric = sm.metric
+                  AND r.time <= now()
+                ORDER BY r.time DESC LIMIT 1
+            ) r ON true
+            WHERE d.building_id = %s AND d.is_active
             ORDER BY d.id, r.metric, r.time DESC
             """,
             (building_id,),

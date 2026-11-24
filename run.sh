@@ -4,6 +4,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+reset_database=false
+setup_args=()
+for argument in "$@"; do
+  if [ "$argument" = "--reset-database" ]; then
+    reset_database=true
+  else
+    setup_args+=("$argument")
+  fi
+done
+
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Required command '$1' was not found." >&2
@@ -47,24 +57,23 @@ if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
 fi
 
 if [ ! -f .env ]; then
-  python3 scripts/setup_env.py "$@"
-elif [ "$#" -gt 0 ]; then
+  python3 scripts/setup_env.py "${setup_args[@]}"
+elif [ "${#setup_args[@]}" -gt 0 ]; then
   echo ".env already exists. Edit its DOMAIN directly; existing secrets are preserved." >&2
   exit 1
 fi
 
 # Add newly introduced runtime-only credentials when upgrading an older .env.
 # The helper preserves existing settings and creates only missing secrets.
-if ! grep -q '^MQTT_BRIDGE_PASSWORD=[^[:space:]]' .env || \
-   ! grep -q '^GRAFANA_DB_PASSWORD=[^[:space:]]' .env; then
-  python3 scripts/ensure_env.py .env
-fi
+python3 scripts/ensure_env.py .env
 
 # Collect and validate the shared AM103 OTAA credential before starting
 # services. It is stored only in the private, git-ignored .env file.
 python3 scripts/provision_chirpstack.py --prepare .env
 
 docker compose --env-file .env config --quiet
+# Stop application clients before changing their schema. ChirpStack is separate.
+docker compose --env-file .env stop api ingest grafana
 # Keep the private .env authoritative even when persistent database volumes
 # were initialized with older passwords. This changes the DB role secrets but
 # preserves both databases and their contents.
@@ -101,5 +110,12 @@ docker compose --env-file .env exec -T chirpstack-postgres \
   -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
 echo "ChirpStack PostgreSQL is healthy and pg_trgm is installed."
 
+docker compose --env-file .env build migrate
+if [ "$reset_database" = true ]; then
+  echo "Rebuilding the application database from its complete baseline; application readings and registry edits will be discarded."
+  docker compose --env-file .env run --rm --no-deps migrate python -m app.db.migrate --reset
+else
+  docker compose --env-file .env run --rm --no-deps migrate
+fi
 docker compose --env-file .env up -d --build
 python3 scripts/provision_chirpstack.py .env

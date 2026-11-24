@@ -119,6 +119,8 @@ services:
   timescaledb:
     image: timescale/timescaledb:2.17.2-pg16  # pinned — a future 3.x would be breaking
     restart: always
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sensorhub}
       POSTGRES_USER: ${POSTGRES_USER:-sensorhub}
@@ -142,6 +144,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
+      API_DB_PASSWORD: ${API_DB_PASSWORD:?set API_DB_PASSWORD in .env}
+      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:?set INGEST_DB_PASSWORD in .env}
     command: ["python", "-m", "app.db.migrate"]
 
   ingest:
@@ -155,7 +159,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
+      DATABASE_URL: postgresql://sensorhub_ingest:${INGEST_DB_PASSWORD:?set INGEST_DB_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_TOPIC: ${MQTT_TOPIC:-application/+/device/+/event/up}
@@ -174,7 +178,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-sensorhub}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
+      DATABASE_URL: postgresql://sensorhub_api:${API_DB_PASSWORD:?set API_DB_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-sensorhub}
       DISPLAY_REFRESH_SECONDS: ${DISPLAY_REFRESH_SECONDS:-60}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
