@@ -71,13 +71,16 @@ fi
 # The helper preserves existing settings and creates only missing secrets.
 python3 scripts/ensure_env.py .env
 
+# Validate effective Compose settings before stopping services or provisioning.
+# JSON is passed privately to the validator; credentials are never printed.
+docker compose --env-file .env config --format json | python3 scripts/validate_runtime.py
+
 # Existing installations are administered through ChirpStack. Only first setup
 # or explicit bootstrap needs the shared key; ordinary restarts never apply it.
 if [ "$bootstrap_chirpstack" = true ]; then
   python3 scripts/provision_chirpstack.py --prepare .env
 fi
 
-docker compose --env-file .env config --quiet
 # Stop application clients before changing their schema. ChirpStack is separate.
 docker compose --env-file .env stop api ingest grafana
 # Keep the private .env authoritative even when persistent database volumes

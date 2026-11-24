@@ -9,6 +9,7 @@
 #   api         FastAPI JSON API for the dashboard
 #   grafana     provisioned, read-only device telemetry dashboards (loopback only)
 #   caddy       reverse proxy with automatic HTTPS (serves frontend + /api)
+#   ngrok       optional persistent public HTTPS tunnel (profile: ngrok)
 #
 # Secrets come from a `.env` file (see `.env.example`).
 #
@@ -220,6 +221,31 @@ services:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  # Enable with COMPOSE_PROFILES=ngrok in .env. PUBLIC_BASE_URL must be an
+  # HTTPS endpoint assigned to your ngrok account; it also drives QR links.
+  ngrok:
+    image: ngrok/ngrok:3
+    profiles: ["ngrok"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    command:
+      - http
+      - http://api:8000
+      - --url=${PUBLIC_BASE_URL:-}
+      - --log=stdout
+      - --log-format=json
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   caddy:
     image: caddy:2

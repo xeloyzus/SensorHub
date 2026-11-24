@@ -398,7 +398,54 @@ production pages do not fetch scripts or fonts from third-party domains.
 The API and ingestion containers run as an unprivileged user. The API has a
 read-only filesystem, and `/health` returns HTTP 503 when the database cannot
 be reached. Caddy waits for API readiness. The API port stays private to the
-Compose network; forwarded-header trust assumes requests arrive through Caddy.
+Compose network; forwarded-header trust assumes requests arrive through Caddy
+or the optional ngrok agent on that network.
+
+### Ongoing access through ngrok
+
+An optional `ngrok` Compose profile runs the official `ngrok/ngrok:3` image
+with `restart: unless-stopped`. It waits for API readiness and forwards public
+HTTPS requests directly to `api:8000`. Local Caddy access continues separately;
+keep `DOMAIN` set to the LAN/Caddy address. No host port is published by ngrok.
+
+In the server's existing `.env`, add or update these entries:
+
+```dotenv
+COMPOSE_PROFILES=ngrok
+NGROK_AUTHTOKEN=YOUR_AGENT_AUTHTOKEN
+PUBLIC_BASE_URL=https://YOUR_ASSIGNED_DOMAIN.ngrok-free.app
+```
+
+Use the exact HTTPS domain assigned to your account on the
+[ngrok Domains page](https://dashboard.ngrok.com/domains), without a trailing
+slash. Copy the agent token from your ngrok account into `.env` only. The same
+`PUBLIC_BASE_URL` configures both the endpoint and the dashboard/QR links.
+`run.sh` checks these settings before stopping any running services.
+
+```bash
+bash run.sh
+docker compose logs --tail=50 ngrok
+```
+
+Open that public origin for the display, `/overview` for the dashboard, or
+`/mobile` for the mobile view. Docker must start on server boot; once created,
+the agent restarts with Docker unless explicitly stopped. Availability still
+depends on the server's internet connection and the ngrok account's limits.
+The dashboard and its read APIs are public at this endpoint.
+
+The [free plan](https://ngrok.com/docs/pricing-limits/free-plan-limits) currently
+allows 20,000 HTTP requests and 1 GB of outbound data per month, and shows a
+browser warning whose dismissal lasts seven days. A continuously polling
+display can exceed that request allowance; the warning also interrupts
+unattended signage. Choose an account plan suitable for the intended usage.
+
+To disable public access, run `docker compose --profile ngrok stop ngrok`,
+then clear `COMPOSE_PROFILES` in `.env`. Removing the profile alone does not
+stop an already running agent. Restore `PUBLIC_BASE_URL` to the LAN/Caddy
+origin and run `bash run.sh` to update QR links.
+
+See the [official ngrok Docker image](https://github.com/ngrok/docker-ngrok)
+and [CLI reference](https://ngrok.com/docs/gateway/agent/cli) for agent options.
 
 Repeated device/metric/timestamp combinations are ignored using the database
 primary key and `ON CONFLICT DO NOTHING`, including buffered replay. AM103
