@@ -23,6 +23,7 @@ function mobile(fetch) {
     fetch, AbortController, setTimeout: () => 1, clearTimeout() {},
     console: { error: (...args) => errors.push(args) },
   };
+  runInNewContext(readFileSync(new URL("../app/static/js/room-temperatures.js", import.meta.url), "utf8"), context);
   runInNewContext(script, context);
   return { context, elements, errors };
 }
@@ -157,6 +158,7 @@ test("Samsung URL page loads and refreshes using the published display interval"
     aggregateMetricHistory: () => [],
     renderTimeSeriesChart() {},
   };
+  runInNewContext(readFileSync(new URL("../app/static/js/room-temperatures.js", import.meta.url), "utf8"), context);
   runInNewContext(readFileSync(new URL("../app/static/js/display-pulse.js", import.meta.url), "utf8"), context);
 
   await context.initDisplayPulse();
@@ -217,6 +219,7 @@ test("overview recovers after an API outage without losing its page elements", a
     aggregateMetricHistory: () => [], renderTimeSeriesChart() {},
     setTimeout: callback => { scheduled.push(callback); return 1; },
   };
+  runInNewContext(readFileSync(new URL("../app/static/js/room-temperatures.js", import.meta.url), "utf8"), context);
   runInNewContext(readFileSync(new URL("../app/static/js/dashboard.js", import.meta.url), "utf8"), context);
   await context.initCampusPulse();
   assert.equal(getElementById("overview-error").hidden, false);

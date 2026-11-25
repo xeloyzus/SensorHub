@@ -28,9 +28,32 @@ def rejected(db, statement, parameters=(), error=psycopg.IntegrityError):
     raise AssertionError(f"Database accepted forbidden operation: {statement}")
 
 
+def verify_registry_upgrade(db):
+    with TemporaryDirectory() as directory:
+        baseline = Path(directory) / "0001_baseline.sql"
+        baseline.write_bytes((MIGRATIONS / "0001_baseline.sql").read_bytes())
+        migrate(db, Path(directory))
+
+    before = db.execute(
+        "SELECT b.slug, d.label, d.room FROM devices d "
+        "JOIN buildings b ON b.id=d.building_id WHERE d.eui=%s",
+        ("24e124725f515337",),
+    ).fetchone()
+    assert before == ("kjolv-egelands-hus", "AM103-KEH-Utenfor", "Utenfor")
+    migrate(db)
+    after = db.execute(
+        "SELECT b.slug, d.label, d.room FROM devices d "
+        "JOIN buildings b ON b.id=d.building_id WHERE d.eui=%s",
+        ("24e124725f515337",),
+    ).fetchone()
+    assert after == ("sis", "AM103-SiS-Gruppetimesal", "Gruppetimesal")
+    assert db.execute("SELECT count(*) FROM devices").fetchone()[0] == 12
+    print("PASS: SIS room migration updates the intended device without duplicating inventory", flush=True)
+
+
 def verify_baseline(db, url):
     migrate(db)
-    assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+    assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == len(list(MIGRATIONS.glob("*.sql")))
     assert db.execute("SELECT count(*) FROM devices").fetchone()[0] == 12
     assert db.execute("SELECT count(*) FROM readings").fetchone()[0] == 0
     assert not db.execute(
@@ -112,6 +135,8 @@ def verify_baseline(db, url):
 def verify_migration_safety(db):
     source = (MIGRATIONS / "0001_baseline.sql").read_text()
     with TemporaryDirectory() as directory:
+        for migration in MIGRATIONS.glob("*.sql"):
+            (Path(directory) / migration.name).write_text(migration.read_text())
         path = Path(directory) / "0001_baseline.sql"
         path.write_bytes(source.replace("\n", "\r\n").encode())
         migrate(db, Path(directory))  # Same checksum across Windows/Linux.
@@ -141,7 +166,7 @@ def verify_migration_safety(db):
     assert db.execute("SELECT count(*) FROM readings").fetchone()[0] == 4
     db.execute("DROP VIEW external_dependency")
     # An old ledger must never be mistaken for the consolidated baseline.
-    db.execute("UPDATE schema_migrations SET filename='0001_init.sql'")
+    db.execute("UPDATE schema_migrations SET filename='0001_init.sql' WHERE filename='0001_baseline.sql'")
     try:
         migrate(db)
     except RuntimeError as error:
@@ -169,6 +194,7 @@ def main():
         try:
             url = make_conninfo(admin_url, dbname=name)
             with psycopg.connect(url, autocommit=True) as db:
+                verify_registry_upgrade(db)
                 verify_baseline(db, url)
                 verify_migration_safety(db)
         finally:

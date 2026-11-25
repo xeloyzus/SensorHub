@@ -152,7 +152,7 @@ function renderDisplaySummary(summary) {
     `${metricTrend(summary.co2)} · ${formatNumber(summary.co2.coverage_24h * 100)}% 24 h coverage`;
   document.getElementById("display-temp").textContent = metricValue(summary.temperature, 1);
   document.getElementById("display-temp-context").textContent =
-    `${metricTrend(summary.temperature)} · ${formatNumber(summary.temperature.coverage_24h * 100)}% 24 h coverage`;
+    `Average of ${summary.temperature.aggregation_count || 0} measured rooms · equal weight per room`;
   document.getElementById("display-energy").textContent =
     summary.energy.current_kw == null ? "--" : `${formatNumber(summary.energy.current_kw, 1)} kW`;
 }
@@ -176,6 +176,7 @@ function renderLocalFocus(summary, config) {
         <strong>${metricValue(building.co2)}</strong>
         <span>${escapeHtml(metricTrend(building.co2))}</span>
       </div>
+      ${roomTemperaturesHtml(building)}
       <p>${recommendation ? escapeHtml(recommendation.verification) : "No action suggested right now."}</p>
     </article>
   `;
@@ -197,9 +198,9 @@ function renderDisplayBuildings(summary) {
           </div>
           <div class="display-building-values">
             <span>CO2<strong>${metricValue(building.co2)}</strong></span>
-            <span>Temp<strong>${metricValue(building.temperature, 1)}</strong></span>
             <span>Energy<strong>${building.energy.current_kw == null ? "--" : `${formatNumber(building.energy.current_kw, 1)} kW`}</strong></span>
           </div>
+          ${roomTemperaturesHtml(building)}
           <p>${escapeHtml(co2Context)}</p>
           <p>${escapeHtml(action)}</p>
         </article>

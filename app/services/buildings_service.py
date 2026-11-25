@@ -31,7 +31,7 @@ async def get_current(db: AsyncConnection, building_id: int) -> CurrentResponse 
 
         await cur.execute(
             """
-            SELECT d.id, d.label, d.type, r.metric, r.value, r.time, r.received_at
+            SELECT d.id, d.label, d.type, r.metric, r.value, r.time, r.received_at, d.room
             FROM devices d
             LEFT JOIN sensor_model_metrics sm ON sm.model_type = d.type
             LEFT JOIN LATERAL (
@@ -50,10 +50,10 @@ async def get_current(db: AsyncConnection, building_id: int) -> CurrentResponse 
     # Group the flat rows into one Sensor per device.
     sensors: dict[int, Sensor] = {}
     latest: datetime | None = None
-    for device_id, label, device_type, metric, value, ts, received_at in rows:
+    for device_id, label, device_type, metric, value, ts, received_at, room in rows:
         sensor = sensors.setdefault(
             device_id,
-            Sensor(device_id=device_id, label=label, type=device_type, readings={}),
+            Sensor(device_id=device_id, label=label, type=device_type, room=room, readings={}),
         )
         if metric is None:
             continue  # Keep registered sensors that have never reported.

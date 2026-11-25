@@ -1,7 +1,7 @@
 """Schemas for analytics, insight, and recommendation endpoints."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,9 @@ class MetricStatistics(BaseModel):
     label: str
     unit: str
     current: float | None = None
+    aggregation: Literal["sensor_mean", "room_mean"] = "sensor_mean"
+    aggregation_count: int = 0
+    aggregation_sum: float | None = None
     mean_24h: float | None = None
     median_24h: float | None = None
     min_24h: float | None = None
@@ -66,12 +69,23 @@ class Recommendation(BaseModel):
     methodology_id: str
 
 
+class RoomTemperature(BaseModel):
+    room: str | None
+    label: str
+    current: float | None = None
+    source_count: int
+    registered_source_count: int
+    device_ids: list[int]
+    latest_reading: datetime | None = None
+
+
 class BuildingSummary(BaseModel):
     building: Building
     generated_at: datetime
     data_quality: DataQuality
     co2: MetricStatistics
     temperature: MetricStatistics
+    room_temperatures: list[RoomTemperature] = Field(default_factory=list)
     energy: EnergySummary
     insights: list[Insight]
     recommendations: list[Recommendation]

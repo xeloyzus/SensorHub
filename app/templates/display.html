@@ -7,7 +7,7 @@
 
 {% block head %}
 <script src="/static/vendor/d3/d3.min.js?v=7.9.0"></script>
-<link rel="stylesheet" href="/static/css/display-pulse.css?v=20261125-measurements">
+<link rel="stylesheet" href="/static/css/display-pulse.css?v=20261125-rooms">
 {% endblock %}
 
 {% block content %}
@@ -40,7 +40,7 @@
         <em id="display-co2-context">Waiting for data</em>
       </article>
       <article>
-        <span>Temperature</span>
+        <span>Average of measured rooms</span>
         <strong id="display-temp">--</strong>
         <em id="display-temp-context">Waiting for data</em>
       </article>
@@ -147,6 +147,7 @@
 {% block scripts %}
 <script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
 <script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
-<script src="/static/js/display-pulse.js?v=20261125-measurements"></script>
+<script src="/static/js/room-temperatures.js?v=20261125-rooms"></script>
+<script src="/static/js/display-pulse.js?v=20261125-rooms"></script>
 <script>initDisplayPulse();</script>
 {% endblock %}

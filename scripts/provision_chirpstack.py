@@ -30,14 +30,14 @@ DEVICES = (
     ("24e124725f519422", "AM103-KEH-E101", "kjolv-egelands-hus", "E101"),
     ("24e124725f514020", "AM103-KEH-C106", "kjolv-egelands-hus", "C106"),
     ("24e124725f517900", "AM103-SiS-Styrkesal", "sis", "Styrkesal"),
-    ("24e124725f517844", "AM103-SiS-Functional Fitness", "sis", "Functional Fitness"),
+    ("24e124725f517844", "AM103-SiS-Functional-Fitness", "sis", "Functional Fitness"),
     ("24e124725f512512", "AM103-KEH-Biblioteket", "kjolv-egelands-hus", "Biblioteket"),
     ("24e124725f517383", "AM103-ARH-Q120", "arne-rettedals-hus", "Q120"),
     ("24e124725f518499", "AM103-ARH-G001", "arne-rettedals-hus", "G001"),
     ("24e124725f512668", "AM103-EOJ-101", "eoj", "101"),
     ("24e124725f518129", "AM103-EOJ-110", "eoj", "110"),
     ("24e124725f516684", "AM103-KEH-C101", "kjolv-egelands-hus", "C101"),
-    ("24e124725f515337", "AM103-KEH-Utenfor", "kjolv-egelands-hus", "Utenfor"),
+    ("24e124725f515337", "AM103-SiS-Gruppetimesal", "sis", "Gruppetimesal"),
 )
 
 

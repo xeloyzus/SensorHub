@@ -95,9 +95,9 @@ def verify_timestamped_reports(db):
     for index in range(12):
         eui = f"24e12412{256+index:08x}"
         device_id = db.execute(
-            "INSERT INTO devices (eui,building_id,type,label) VALUES (%s,%s,'am103',%s) "
+            "INSERT INTO devices (eui,building_id,type,label,room) VALUES (%s,%s,'am103',%s,%s) "
             "ON CONFLICT (eui) DO UPDATE SET is_active=TRUE RETURNING id",
-            (eui, building_id, f"Timestamped regression {index+1}"),
+            (eui, building_id, f"Timestamped regression {index+1}", f"Room {index+1}"),
         ).fetchone()[0]
         devices.append((eui, device_id))
     ids = [device_id for _, device_id in devices]
@@ -181,7 +181,7 @@ def run():
             raise RuntimeError("Refusing to write to a non-test database")
         assert db.execute("SELECT extversion FROM pg_extension WHERE extname='timescaledb'").fetchone()
         assert db.execute("SELECT to_regclass('readings_hourly')").fetchone()[0]
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
         verify_timestamped_reports(db)
         # Keep deployment registry rows, while isolating these smoke-test sensors
         # from the seeded active fleet. This is a disposable test database.
@@ -204,7 +204,7 @@ def run():
         ]
         for eui, kind, label in devices:
             target_building = active['sis'] if kind == 'am107' else building_id
-            db.execute("INSERT INTO devices (eui, building_id, type, label) VALUES (%s, %s, %s, %s) ON CONFLICT (eui) DO NOTHING", (eui, target_building, kind, label))
+            db.execute("INSERT INTO devices (eui, building_id, type, label, room) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (eui) DO NOTHING", (eui, target_building, kind, label, label))
         ids = dict(db.execute("SELECT eui, id FROM devices WHERE label LIKE 'Integration %'").fetchall())
         # Make repeated smoke checks deterministic inside this guarded test DB.
         db.execute("DELETE FROM readings WHERE device_id = ANY(%s)", (list(ids.values()),))
@@ -285,6 +285,10 @@ def run():
         result = api(f"/api/buildings/{building_id}/summary")
         assert result["co2"]["current"] == 1750
         assert result["temperature"]["current"] == 26
+        assert result["temperature"]["aggregation_count"] == 2
+        assert result["temperature"]["aggregation"] == "room_mean"
+        assert len(result["room_temperatures"]) == 3
+        assert next(room for room in result["room_temperatures"] if room["label"] == "Integration silent")["current"] is None
         assert result["energy"]["current_kw"] == 0
         assert result["data_quality"]["sensors_with_readings"] == 3
         assert result["data_quality"]["missing_sensors"] == 1

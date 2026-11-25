@@ -59,9 +59,9 @@ function renderBuildings(buildings) {
           </div>
           <div class="building-metrics">
             <span><em>CO2</em><strong>${formatMetric(summary.co2)}</strong></span>
-            <span><em>Temperature</em><strong>${formatMetric(summary.temperature, 1)}</strong></span>
             <span><em>Electricity</em><strong>${summary.energy.current_kw == null ? "--" : `${formatNumber(summary.energy.current_kw, 1)} kW`}</strong></span>
           </div>
+          ${roomTemperaturesHtml(summary)}
           <p>${escapeHtml(metricContext(summary.co2))}</p>
           ${
             recommendation
@@ -172,7 +172,8 @@ async function initCampusPulse() {
         : "No measurements available";
 
       setCard("air-card", formatMetric(summary.co2), metricContext(summary.co2));
-      setCard("temperature-card", formatMetric(summary.temperature, 1), metricContext(summary.temperature));
+      setCard("temperature-card", formatMetric(summary.temperature, 1),
+        `Average of ${summary.temperature.aggregation_count || 0} measured rooms · equal weight per room`);
       setCard(
         "energy-card",
         summary.energy.current_kw == null ? "--" : `${formatNumber(summary.energy.current_kw, 1)} kW`,

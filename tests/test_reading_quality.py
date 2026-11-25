@@ -18,7 +18,7 @@ BUILDING = Building(id=1, name="Test", slug="test")
 def sensor(device_id=1, co2=1100, age=0, type_="am103"):
     timestamp = NOW - timedelta(minutes=age)
     readings = {"co2": co2, "temperature": 21, "humidity": 40} if type_ in {"am103", "am107"} else {"temperature": 80, "current_1": 0, "current_2": 0, "current_3": 0}
-    return Sensor(device_id=device_id, label="Test", type=type_, readings=readings, updated=timestamp, metric_updated={metric: timestamp for metric in readings})
+    return Sensor(device_id=device_id, label="Test", type=type_, room=f"Room {device_id}", readings=readings, updated=timestamp, metric_updated={metric: timestamp for metric in readings})
 
 
 def series(values, ages, device_id=1, metric="co2", type_="am103"):
@@ -164,7 +164,7 @@ def test_campus_quality_combines_counts_and_latest_timestamp():
 def test_current_query_keeps_silent_devices_and_metric_timestamps(monkeypatch):
     cursor = AsyncMock()
     cursor.fetchone.return_value = (1, "Test", "test")
-    cursor.fetchall.return_value = [(1, "Room", "am103", "co2", 700, NOW, NOW), (1, "Room", "am103", "temperature", 21, NOW-timedelta(hours=2), NOW), (2, "Silent", "am103", None, None, None, None)]
+    cursor.fetchall.return_value = [(1, "Room", "am103", "co2", 700, NOW, NOW, "A101"), (1, "Room", "am103", "temperature", 21, NOW-timedelta(hours=2), NOW, "A101"), (2, "Silent", "am103", None, None, None, None, "A102")]
 
     class DB:
         def cursor(self):

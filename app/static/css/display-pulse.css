@@ -440,8 +440,8 @@ body {
 
 .display-building-card {
   min-width: 0;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: clamp(0.8rem, 1.4vh, 1.25rem);
   padding: clamp(1rem, 1.6vw, 1.8rem);
 }
@@ -451,6 +451,19 @@ body {
   color: var(--display-ink);
   font-size: 2.2rem;
   line-height: 1;
+}
+
+.display-pulse .room-temperatures {
+  margin: 0;
+  font-size: clamp(0.95rem, 1.3vw, 1.3rem);
+}
+
+.display-pulse .room-temperatures .room-average {
+  font-size: inherit;
+}
+
+.display-pulse .room-temperatures .room-average-note {
+  font-size: 0.85em;
 }
 
 .display-building-values {

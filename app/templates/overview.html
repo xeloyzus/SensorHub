@@ -42,7 +42,7 @@
         <span class="metric-card-context">Waiting for data</span>
       </article>
       <article class="metric-card" id="temperature-card">
-        <span class="metric-card-label">Temperature</span>
+        <span class="metric-card-label">Average of measured rooms</span>
         <strong class="metric-card-value">--</strong>
         <span class="metric-card-context">Waiting for data</span>
       </article>
@@ -120,6 +120,7 @@
 {% block scripts %}
 <script src="/static/js/api-client.js?v=20261101-campus-colours"></script>
 <script src="/static/js/charts/timeSeries.js?v=20261101-campus-colours"></script>
-<script src="/static/js/dashboard.js?v=20261125-measurements"></script>
+<script src="/static/js/room-temperatures.js?v=20261125-rooms"></script>
+<script src="/static/js/dashboard.js?v=20261125-rooms"></script>
 <script>initCampusPulse();</script>
 {% endblock %}

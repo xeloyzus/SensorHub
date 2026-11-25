@@ -11,6 +11,7 @@ class Sensor(BaseModel):
     device_id: int
     label: str
     type: str
+    room: str | None = None
     readings: dict[str, float]
     updated: datetime | None = None
     metric_updated: dict[str, datetime] = Field(default_factory=dict)

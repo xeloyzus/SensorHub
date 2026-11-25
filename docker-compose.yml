@@ -239,7 +239,8 @@ services:
       - --url=${PUBLIC_BASE_URL:-}
       - --log=stdout
       - --log-format=json
-    read_only: true
+    # The official entrypoint writes NGROK_AUTHTOKEN to
+    # /var/lib/ngrok/auth-config.yml before launching the agent.
     tmpfs:
       - /tmp
     security_opt:

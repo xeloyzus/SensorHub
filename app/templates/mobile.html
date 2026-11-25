@@ -41,6 +41,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/room-temperatures.js?v=20261125-rooms"></script>
 <script>
 // Enhanced mobile dashboard with loading states and error handling
 const MOBILE_REFRESH_MS = 60000;
@@ -119,9 +120,16 @@ async function loadDashboard() {
       card.className = 'building';
       
       let sensorsHtml = '';
+      let roomSummaryHtml = '';
       let quality = getQualityBadge(null);
       try {
         const data = await fetchWithTimeout(`/api/buildings/${building.id}/current`);
+        try {
+          const summary = await fetchWithTimeout(`/api/buildings/${building.id}/summary`);
+          roomSummaryHtml = roomTemperaturesHtml(summary);
+        } catch {
+          roomSummaryHtml = '<p>Room summary unavailable</p>';
+        }
         
         const co2Readings = [];
         for (const sensor of data.sensors) {
@@ -169,6 +177,7 @@ async function loadDashboard() {
           ${escapeHtml(building.name)}
           ${quality.text !== '—' ? `<span class="badge" style="margin-left: auto; background: ${quality.color}20; color: ${quality.color}; border-color: ${quality.color}40">${quality.text}</span>` : ''}
         </h2>
+        ${roomSummaryHtml}
         ${sensorsHtml}
       `;
       

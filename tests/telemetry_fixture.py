@@ -49,6 +49,7 @@ def get_current(building_id: int) -> CurrentResponse | None:
         sensor = Sensor(
             device_id=building_id * 10 + i,
             label=f"{b['name']} — Room {i}",
+            room=f"Room {i}",
             type=kind,
             readings={
                 "co2": round(b["co2"] + _rng.uniform(-80, 80)),

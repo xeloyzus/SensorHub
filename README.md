@@ -407,6 +407,9 @@ An optional `ngrok` Compose profile runs the official `ngrok/ngrok:3` image
 with `restart: unless-stopped`. It waits for API readiness and forwards public
 HTTPS requests directly to `api:8000`. Local Caddy access continues separately;
 keep `DOMAIN` set to the LAN/Caddy address. No host port is published by ngrok.
+The official image writes its environment token into
+`/var/lib/ngrok/auth-config.yml` during startup, so the ngrok container needs
+a writable filesystem. The token remains configured through `.env`.
 
 In the server's existing `.env`, add or update these entries:
 
@@ -446,6 +449,10 @@ origin and run `bash run.sh` to update QR links.
 
 See the [official ngrok Docker image](https://github.com/ngrok/docker-ngrok)
 and [CLI reference](https://ngrok.com/docs/gateway/agent/cli) for agent options.
+To verify the image's actual authentication bootstrap without opening a tunnel,
+run `docker pull ngrok/ngrok:3` followed by
+`python tests/check_ngrok_container.py`; this uses a synthetic token and disables
+all networking in the test container.
 
 Repeated device/metric/timestamp combinations are ignored using the database
 primary key and `ON CONFLICT DO NOTHING`, including buffered replay. AM103

@@ -20,6 +20,7 @@ from ..schemas.analytics import (
     Methodology,
     MetricStatistics,
     Recommendation,
+    RoomTemperature,
 )
 from . import buildings_service, history_service
 
@@ -49,6 +50,7 @@ METHODOLOGY = Methodology(
         "Recommendations are deterministic suggestions, not automated diagnoses.",
         "Correlation between metrics is not treated as evidence of causation.",
         "Summary values use the latest stored measurement per sensor and metric, excluding future timestamps.",
+        "Latest temperature is the equal-weight mean of measured rooms. Multiple sensors in a room are averaged first. Unassigned sensors and rooms without readings are excluded from that mean. Floor areas are unknown.",
         "CO2 actions require four consecutive elevated 15-minute averages from one sensor spanning 45 minutes, with no gap over 20 minutes. The latest raw measurement must be within 20 minutes and the latest bucket within 35 minutes, allowing for bucket alignment.",
         "Coverage is populated 15-minute buckets divided by 96 per registered air sensor.",
     ],
@@ -130,6 +132,16 @@ async def get_building_summary(
         sensors=air_sensors,
         now=generated_at,
     )
+    rooms = _room_temperatures(air_sensors, generated_at)
+    measured_rooms = [room for room in rooms if room.room is not None and room.current is not None]
+    room_values = [room.current for room in measured_rooms]
+    temperature = temperature.model_copy(update={
+        "current": _round_optional(_rounded_mean(room_values), 1),
+        "source_count": sum(room.source_count for room in measured_rooms),
+        "aggregation": "room_mean",
+        "aggregation_count": len(room_values),
+        "aggregation_sum": sum(room_values) if room_values else None,
+    })
     energy = _energy_summary(current.sensors, generated_at)
 
     quality = DataQuality(
@@ -148,6 +160,7 @@ async def get_building_summary(
         data_quality=quality,
         co2=co2,
         temperature=temperature,
+        room_temperatures=rooms,
         energy=energy,
         insights=insights,
         recommendations=recommendations,
@@ -205,6 +218,8 @@ def _metric_stats(
             label=label,
             unit=unit,
             current=_round_optional(current, precision),
+            aggregation_count=source_count,
+            aggregation_sum=sum(current_values) if current_values else None,
             sample_count=0,
             source_count=source_count,
             registered_source_count=registered_count,
@@ -219,6 +234,8 @@ def _metric_stats(
         label=label,
         unit=unit,
         current=_round_optional(current, precision),
+        aggregation_count=source_count,
+        aggregation_sum=sum(current_values) if current_values else None,
         mean_24h=round(mean(points), precision),
         median_24h=round(median(points), precision),
         min_24h=round(min(points), precision),
@@ -233,6 +250,33 @@ def _metric_stats(
         sustained_device_ids=sorted(sustained),
         coverage_24h=coverage,
     )
+
+
+def _room_temperatures(sensors, now: datetime) -> list[RoomTemperature]:
+    groups = {}
+    for sensor in sensors:
+        if sensor.type not in AIR_SENSOR_TYPES:
+            continue
+        room = " ".join(sensor.room.split()) if sensor.room else None
+        key = ("room", room.casefold()) if room else ("device", sensor.device_id)
+        groups.setdefault(key, (room, []))[1].append(sensor)
+
+    result = []
+    for room, members in groups.values():
+        measured = [sensor for sensor in members if _has_measurement(sensor, "temperature", now)]
+        result.append(RoomTemperature(
+            room=room,
+            label=room or f"Room unassigned — {members[0].label}",
+            current=_rounded_mean(sensor.readings["temperature"] for sensor in measured),
+            source_count=len(measured),
+            registered_source_count=len(members),
+            device_ids=sorted(sensor.device_id for sensor in members),
+            latest_reading=max(
+                (_aware_utc(sensor.metric_updated["temperature"]) for sensor in measured),
+                default=None,
+            ),
+        ))
+    return sorted(result, key=lambda item: (item.room is None, item.label.casefold()))
 
 
 def _energy_summary(sensors, now: datetime | None = None) -> EnergySummary:
@@ -406,14 +450,22 @@ def _combine_metric(
     sample_count = sum(metric.sample_count for metric in metric_list)
     source_count = sum(metric.source_count for metric in metric_list)
     registered_count = sum(metric.registered_source_count for metric in metric_list)
+    contributors = [metric for metric in metric_list if metric.current is not None]
+    count = sum(metric.aggregation_count or metric.source_count for metric in contributors)
+    total = sum(
+        metric.aggregation_sum if metric.aggregation_sum is not None
+        else metric.current * (metric.aggregation_count or metric.source_count)
+        for metric in contributors
+    )
 
     precision = 1 if unit == "°C" else 0
     return MetricStatistics(
         label=label,
         unit=unit,
-        current=_round_optional(
-            _weighted_metric(metric_list, "current", "source_count"), precision
-        ),
+        current=_round_optional(total / count if count else None, precision),
+        aggregation="room_mean" if unit == "°C" else "sensor_mean",
+        aggregation_count=count,
+        aggregation_sum=total if count else None,
         mean_24h=_round_optional(
             _weighted_metric(metric_list, "mean_24h", "sample_count"), precision
         ),
