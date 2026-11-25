@@ -55,6 +55,30 @@ test("mobile renders latest stored readings regardless of their measurement date
   assert.ok(app.elements.updated.textContent.includes("Dashboard refreshed"));
 });
 
+test("mobile shows room temperatures and the server-computed room average", async () => {
+  const summary = {
+    temperature: { current: 10, aggregation_count: 2 },
+    room_temperatures: [
+      { label: "Cold room", current: 0, source_count: 1 },
+      { label: "<Room B>", current: 20, source_count: 2 },
+      { label: "Room C", current: null, source_count: 0 },
+    ],
+  };
+  const app = mobile(async url => ({ ok: true, json: async () =>
+    url === "/api/buildings" ? [{ id: 1, name: "SiS" }] :
+    url.endsWith("/summary") ? summary : { sensors: [] },
+  }));
+  await app.context.loadDashboard();
+  const html = app.elements.mobile.children[0].innerHTML;
+  assert.match(html, /0\.0 °C/);
+  assert.match(html, /20\.0 °C/);
+  assert.match(html, /10\.0 °C/);
+  assert.match(html, /&lt;Room B&gt;/);
+  assert.match(html, /No reading/);
+  assert.match(html, /2 sensors/);
+  assert.match(html, /2 rooms/);
+});
+
 test("a failing sensor request leaves its building card visible", async () => {
   const app = mobile(async url => {
     if (url === "/api/buildings") return { ok: true, json: async () => [{ id: 1, name: "Library" }] };
@@ -127,7 +151,7 @@ test("Samsung URL page loads and refreshes using the published display interval"
   const scheduled = [];
   const historyRanges = [];
   const co2 = { current: 650, unit: "ppm", change_1h: 20, coverage_24h: 1, source_count: 1 };
-  const temperature = { current: 21, unit: "°C", change_1h: 0, coverage_24h: 1 };
+  const temperature = { current: 21, unit: "°C", change_1h: 0, coverage_24h: 1, aggregation_count: 2 };
   const energy = { current_kw: 4 };
   const data_quality = {
     sensors_with_readings: 1, registered_sensors: 1, missing_sensors: 0,
@@ -138,6 +162,11 @@ test("Samsung URL page loads and refreshes using the published display interval"
     buildings: [{
       building: { id: 1, name: "KEH", slug: "keh" },
       co2, temperature, energy, data_quality, recommendations: [],
+      room_temperatures: [
+        { label: "Room A", current: 20, source_count: 1 },
+        { label: "Room B", current: 22, source_count: 1 },
+        { label: "Room C", current: null, source_count: 0 },
+      ],
     }],
   };
   const context = {
@@ -164,6 +193,13 @@ test("Samsung URL page loads and refreshes using the published display interval"
   await context.initDisplayPulse();
   assert.equal(elements["display-source"].textContent, "Sensor readings");
   assert.equal(elements["display-co2"].textContent, "650 ppm");
+  assert.match(elements["display-building-grid"].innerHTML, /Room A/);
+  assert.match(elements["display-building-grid"].innerHTML, /20\.0 °C/);
+  assert.match(elements["display-building-grid"].innerHTML, /Room B/);
+  assert.match(elements["display-building-grid"].innerHTML, /22\.0 °C/);
+  assert.match(elements["display-building-grid"].innerHTML, /No reading/);
+  assert.match(elements["display-building-grid"].innerHTML, /Average of measured rooms:/);
+  assert.match(elements["display-temp-context"].textContent, /2 measured rooms/);
   assert.equal(elements["display-pulse"].dataset.preset, "lobby");
   assert.equal(elements["display-dashboard-url"].textContent, "https://display.example.test/overview");
   assert.equal(scheduled[0].milliseconds, 45_000);

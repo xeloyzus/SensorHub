@@ -189,7 +189,7 @@ function renderDisplayBuildings(summary) {
       const recommendation = building.recommendations[0];
       const action = recommendation
         ? `Possible action: ${recommendation.verification}`
-        : "No action suggested right now.";
+        : "";
       const co2Context = `${formatNumber(building.co2.coverage_24h * 100)}% 24 h coverage`;
       return `
         <article class="display-building-card">
@@ -202,7 +202,7 @@ function renderDisplayBuildings(summary) {
           </div>
           ${roomTemperaturesHtml(building)}
           <p>${escapeHtml(co2Context)}</p>
-          <p>${escapeHtml(action)}</p>
+          ${action ? `<p>${escapeHtml(action)}</p>` : ""}
         </article>
       `;
     })

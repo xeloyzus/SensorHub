@@ -200,6 +200,24 @@ constraints, permissions, reset semantics, and DBeaver connection instructions.
 resources only during first-time/explicit bootstrap, and keeps the initial AppKey
 inside `.env` rather than source control or the NanitesLab database.
 
+### Complete application and ChirpStack reset
+
+For an explicitly requested fresh installation of all services, deploy the
+updated code, keep your existing `.env`, and run from the project directory:
+
+```bash
+python3 scripts/ensure_env.py .env
+docker compose --profile ngrok down --volumes
+bash run.sh --reset-database --bootstrap-chirpstack
+```
+
+**This deletes application readings, ChirpStack registrations/sessions, and the
+stored Grafana, MQTT, and other Compose volume state.** The first command only
+fills missing runtime passwords, so Compose can also stop an older deployment
+whose `.env` predates those passwords. Existing secrets and ngrok settings in
+`.env` remain. Bootstrap creates the 12 devices, including all three corrected
+SiS room assignments. OTAA sensors must rejoin the rebuilt network.
+
 If Compose reports missing `DOMAIN`, database, Grafana, or MQTT passwords,
 it has not started the services. Run `bash run.sh` from this checkout to
 create first-run configuration. If `.env` already exists, fill its missing
@@ -253,7 +271,8 @@ to it after startup.
 The current-readings API includes every registered sensor, even when it has
 never reported. `updated` and `metric_updated` are additive sensor fields;
 the existing numeric `readings` map is preserved. Measurement timestamps are
-kept per metric, rather than inferred from another sensor.
+kept per metric, rather than inferred from another sensor. Each sensor also
+exposes its registered `room`.
 
 Summaries use the latest stored measurement for each sensor and metric,
 excluding timestamps in the future. The `current` metric field contains this
@@ -263,10 +282,24 @@ latest-value average without an age cutoff. `data_quality` reports
 counted as missing only when it has no measurements. Displays show measurement
 timestamps without assigning age categories to sensors or readings.
 
-Indoor temperature statistics include registered AM103 and legacy AM107 air
-sensors, excluding CT305 panel temperatures. Current campus
-averages are weighted by sensors with readings, historical means by populated
-15-minute buckets, and coverage includes registered air sensors with no data.
+Building summaries expose `room_temperatures` with each registered room's
+temperature, contributing sensors, and measurement timestamp. Latest
+temperature uses the **average of measured rooms**: average the latest sensor
+values within each room, then give every measured room equal weight. Room
+names are matched without regard to case or repeated whitespace. Rooms without
+temperature readings are shown but excluded from the mean; zero is a valid
+measurement. Sensors without a room assignment are listed separately and
+excluded from the room mean. Room floor areas and occupancy are unknown, so
+this is a description of the measured rooms, not an area-weighted temperature
+for the whole building.
+
+Indoor temperature statistics include AM103 and legacy AM107 air sensors,
+excluding CT305 panel temperatures. Campus latest temperature uses unrounded
+room sums and room counts, so buildings with different numbers of rooms are
+combined correctly. `aggregation`, `aggregation_count`, and `aggregation_sum`
+describe the latest-value calculation. CO2 remains a sensor mean. Historical
+means use populated 15-minute sensor buckets, and coverage includes registered
+air sensors with no data.
 Historical min/max/p95 describe bucket averages, not raw peaks. Measured zero
 current is retained as zero; electricity remains an estimate at 230 V using
 the latest available phases, without calibrated power-factor or kWh data.

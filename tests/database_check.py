@@ -30,25 +30,32 @@ def rejected(db, statement, parameters=(), error=psycopg.IntegrityError):
 
 def verify_registry_upgrade(db):
     with TemporaryDirectory() as directory:
-        baseline = Path(directory) / "0001_baseline.sql"
-        baseline.write_bytes((MIGRATIONS / "0001_baseline.sql").read_bytes())
+        baseline = MIGRATIONS / "0001_baseline.sql"
+        (Path(directory) / baseline.name).write_text(baseline.read_text())
         migrate(db, Path(directory))
-
-    before = db.execute(
-        "SELECT b.slug, d.label, d.room FROM devices d "
-        "JOIN buildings b ON b.id=d.building_id WHERE d.eui=%s",
-        ("24e124725f515337",),
-    ).fetchone()
-    assert before == ("kjolv-egelands-hus", "AM103-KEH-Utenfor", "Utenfor")
+    targets = ("24e124725f517900", "24e124725f517844", "24e124725f515337")
+    identities = dict(db.execute("SELECT eui,id FROM devices WHERE eui=ANY(%s)", (list(targets),)))
+    device = identities[targets[-1]]
+    assert db.execute(
+        "SELECT b.slug,d.label,d.room FROM devices d JOIN buildings b ON b.id=d.building_id WHERE d.id=%s",
+        (device,),
+    ).fetchone() == ("kjolv-egelands-hus", "AM103-KEH-Utenfor", "Utenfor")
+    now = datetime.now(timezone.utc)
+    db.execute(INSERT, (now, device, "temperature", 22))
     migrate(db)
-    after = db.execute(
-        "SELECT b.slug, d.label, d.room FROM devices d "
-        "JOIN buildings b ON b.id=d.building_id WHERE d.eui=%s",
-        ("24e124725f515337",),
-    ).fetchone()
-    assert after == ("sis", "AM103-SiS-Gruppetimesal", "Gruppetimesal")
+    rows = db.execute(
+        "SELECT d.eui,d.id,b.slug,d.label,d.room FROM devices d JOIN buildings b ON b.id=d.building_id "
+        "WHERE d.eui=ANY(%s) ORDER BY d.eui", (list(targets),)
+    ).fetchall()
+    assert {eui: identity for eui, identity, *_ in rows} == identities
+    assert all(row[2] == "sis" for row in rows)
     assert db.execute("SELECT count(*) FROM devices").fetchone()[0] == 12
-    print("PASS: SIS room migration updates the intended device without duplicating inventory", flush=True)
+    assert {row[3] for row in rows} == {
+        "AM103-SiS-Styrkesal", "AM103-SiS-Functional-Fitness", "AM103-SiS-Gruppetimesal",
+    }
+    assert db.execute("SELECT value FROM readings WHERE device_id=%s", (device,)).fetchone()[0] == 22
+    db.execute("DELETE FROM readings WHERE device_id=%s", (device,))
+    print("PASS: SiS registry upgrade preserves all three device IDs and existing readings", flush=True)
 
 
 def verify_baseline(db, url):

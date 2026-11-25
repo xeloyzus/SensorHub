@@ -22,6 +22,6 @@ function roomTemperaturesHtml(summary) {
         <strong>${average == null ? "--" : `${number(average)} °C`}</strong>
         · ${count} room${count === 1 ? "" : "s"}
       </p>
-      <p class="room-average-note">Equal weight per room; sensor values are averaged within each room. Rooms without readings and unassigned sensors are excluded.</p>
+      <p class="room-average-note">Equal room weights; only assigned rooms with readings are included.</p>
     </section>`;
 }

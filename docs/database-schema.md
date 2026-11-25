@@ -5,6 +5,12 @@ definition is [`0001_baseline.sql`](../app/db/migrations/0001_baseline.sql).
 This replaces the six pre-baseline migrations; it is deliberately a fresh-start
 release, not an in-place conversion of their historical data.
 
+`0002_sis_rooms.sql` corrects the three specified SiS registrations by EUI,
+including moving `24e124725f515337` from KEH to SiS as
+`AM103-SiS-Gruppetimesal`. It preserves existing device IDs and measurements,
+and inserts a missing registration when needed. Installed baseline checksums
+remain unchanged. Ordinary startup applies this data migration once.
+
 ChirpStack's PostgreSQL database and Redis are separate, vendor-managed network
 server state. Do not merge their tables into the application's schema or reset
 them to rebuild sensor telemetry.

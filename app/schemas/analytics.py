@@ -21,8 +21,13 @@ class MetricStatistics(BaseModel):
     unit: str
     current: float | None = None
     aggregation: Literal["sensor_mean", "room_mean"] = "sensor_mean"
-    aggregation_count: int = 0
-    aggregation_sum: float | None = None
+    aggregation_count: int = Field(
+        default=0, description="Number of sensors or measured rooms used in the latest-value mean."
+    )
+    aggregation_sum: float | None = Field(
+        default=None,
+        description="Sum before display rounding; divide by aggregation_count for the latest-value mean.",
+    )
     mean_24h: float | None = None
     median_24h: float | None = None
     min_24h: float | None = None
